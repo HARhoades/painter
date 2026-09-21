@@ -1,0 +1,28 @@
+# Environmental variables (contains secret keys/passwords)
+.env
+*.env
+
+# Dependency folders
+node_modules/
+vendor/
+
+# Build outputs and logs
+dist/
+build/
+*.log
+*.zip
+section_list.txt
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# IDE and text editor configurations
+.vscode/
+.idea/
+*.suo
+
+# Directories
+submissions/
+files/
+browser_script/
