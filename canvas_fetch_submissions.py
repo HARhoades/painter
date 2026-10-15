@@ -74,6 +74,23 @@ Creating grade files
   title and id are left blank to fill in before posting. Existing files are
   never overwritten unless you pass --force.
 
+Exporting the roster
+--------------------
+  # one CSV line per student, sorted by last name
+  python canvas_fetch_submissions.py --base-url https://school.instructure.com \
+      --course 12345 --roster-csv roster.csv
+
+  # just some sections (and/or students), same filters as a download run
+  python canvas_fetch_submissions.py --base-url https://school.instructure.com \
+      --course 12345 --roster-csv roster.csv --section A2-8 --section 27440
+
+  Columns: Student Full Name (First Last), Student Canvas ID, Student First
+  Name, Student Last Name, Instructor Last Name, Section Name, Section Canvas
+  ID. A student enrolled in several sections gets one line per section (with
+  --section, only the selected ones). A section with several teachers lists
+  their surnames separated by "; "; TAs are used only when a section has no
+  teacher. The file is UTF-8 with a BOM so Excel shows accented names correctly.
+
 Posting grades and comments
 ---------------------------
   # check a grade file against Canvas without posting anything
@@ -1078,6 +1095,109 @@ def make_grade_files(canvas: Canvas, args) -> int:
 
 
 # --------------------------------------------------------------------------
+# Exporting the roster to CSV
+# --------------------------------------------------------------------------
+ROSTER_CSV_COLUMNS = [
+    "Student Full Name", "Student Canvas ID", "Student First Name",
+    "Student Last Name", "Instructor Last Name", "Section Name",
+    "Section Canvas ID",
+]
+
+
+def split_name(user: dict) -> tuple[str, str]:
+    """(first, last) for a Canvas user.
+
+    sortable_name ("Last, First") is the reliable split: it keeps multi-word
+    surnames such as "De La Cruz, Ana" together. Without a comma, the last
+    word of the display name is taken as the surname.
+    """
+    sortable = (user.get("sortable_name") or "").strip()
+    if "," in sortable:
+        last, first = (part.strip() for part in sortable.split(",", 1))
+        return first, last
+    words = (user.get("name") or sortable).split()
+    if not words:
+        return "", ""
+    return " ".join(words[:-1]), words[-1]
+
+
+def section_instructors(canvas: Canvas, course_id: int) -> dict[int, list[str]]:
+    """Section ID -> instructor surnames. Teachers win; TAs only as a fallback."""
+    teachers: dict[int, list[str]] = {}
+    tas: dict[int, list[str]] = {}
+    for enr in canvas.teacher_enrollments(course_id):
+        sid = enr.get("course_section_id")
+        name = instructor_label(enr)
+        if sid is None or not name:
+            continue
+        bucket = teachers if enr.get("type") == "TeacherEnrollment" else tas
+        names = bucket.setdefault(sid, [])
+        if name not in names:
+            names.append(name)
+    return {sid: teachers.get(sid) or tas.get(sid) or []
+            for sid in set(teachers) | set(tas)}
+
+
+def export_roster_csv(canvas: Canvas, args) -> int:
+    """--roster-csv: one line per student (per section), sorted by last name."""
+    roster = Roster(canvas.sections(args.course),
+                    canvas.student_enrollments(args.course))
+    student_ids, section_ids = select_students(roster, args)
+    if args.assignment:
+        assigned = assigned_students(canvas, args.course, args.assignment)
+        student_ids = assigned if student_ids is None else student_ids & assigned
+    instructors = section_instructors(canvas, args.course)
+
+    rows = []
+    for uid, user in roster.users.items():
+        if student_ids is not None and uid not in student_ids:
+            continue
+        first, last = split_name(user)
+        full = " ".join(part for part in (first, last) if part)
+        sids = roster.sections_of_user.get(uid, [])
+        if section_ids:
+            # A student added with --student may sit outside the selected
+            # sections; keep their own sections rather than dropping them.
+            sids = [s for s in sids if s in section_ids] or sids
+        for sid in sids or [None]:
+            section = roster.section_by_id.get(sid, {}) if sid is not None else {}
+            rows.append({
+                "Student Full Name": full,
+                "Student Canvas ID": uid,
+                "Student First Name": first,
+                "Student Last Name": last,
+                "Instructor Last Name": "; ".join(instructors.get(sid, [])),
+                "Section Name": section.get("name", ""),
+                "Section Canvas ID": sid if sid is not None else "",
+            })
+
+    rows.sort(key=lambda r: (r["Student Last Name"].casefold(),
+                             r["Student First Name"].casefold(),
+                             str(r["Student Canvas ID"]),
+                             r["Section Name"].casefold()))
+
+    path = Path(args.roster_csv)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=ROSTER_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    students = len({r["Student Canvas ID"] for r in rows})
+    extra = len(rows) - students
+    print(f"{students} student(s), {len(rows)} line(s) -> {path}")
+    if extra:
+        print(f"  note: {extra} extra line(s) for students in more than one "
+              "section; filter with --section to keep one", file=sys.stderr)
+    no_teacher = sorted({r["Section Name"] for r in rows
+                         if not r["Instructor Last Name"]})
+    if no_teacher:
+        print("  note: no instructor enrolled in: " + ", ".join(
+            n or "(no section)" for n in no_teacher), file=sys.stderr)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Posting grades and comments
 # --------------------------------------------------------------------------
 GRADE_FILE_KEYS = {
@@ -1721,9 +1841,18 @@ def main() -> int:
                     help="Where to write the grade files (default: current directory)")
     g2.add_argument("--force", action="store_true",
                     help="Overwrite grade files that already exist")
+    g3 = p.add_argument_group("exporting the roster")
+    g3.add_argument("--roster-csv", metavar="FILE",
+                    help="Write a CSV of students (name, Canvas ID, first/last "
+                         "name, instructor, section, section ID), sorted by last "
+                         "name, and exit. Honours --section, --student and "
+                         "--assignment.")
     args = p.parse_args()
-    if args.post_grades and args.make_grade_files:
-        p.error("--make-grade-files and --post-grades cannot be combined")
+    modes = [m for m, on in (("--post-grades", args.post_grades),
+                             ("--make-grade-files", args.make_grade_files),
+                             ("--roster-csv", args.roster_csv)) if on]
+    if len(modes) > 1:
+        p.error(" and ".join(modes) + " cannot be combined")
     if args.course is None and not args.post_grades:
         p.error("--course is required (it is optional only with --post-grades)")
     run_started = datetime.now()   # names the log file; local clock, not UTC
@@ -1740,6 +1869,9 @@ def main() -> int:
 
     if args.make_grade_files:
         return make_grade_files(canvas, args)
+
+    if args.roster_csv:
+        return export_roster_csv(canvas, args)
 
     tz = None
     if args.tz:

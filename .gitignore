@@ -26,3 +26,6 @@ Thumbs.db
 submissions/
 files/
 browser_script/
+browser_grader/
+toy_mcp/
+json-rpc-2/
