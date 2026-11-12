@@ -14,11 +14,11 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter quiz uploads [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] --assignment",
-    "                            ID [--section SPEC] [--student SPEC] [--by-section] [--out DIR]",
-    "                            [--profile DIR] [--channel {chrome,msedge,chromium}] [--connect URL]",
-    "                            [--headless] [--signin-timeout SECONDS] [--page-timeout SECONDS]",
-    "                            [--delay SECONDS] [--limit N] [--dry-run]",
+    "usage: painter quiz uploads [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                            --assignment ID [--section SPEC] [--student SPEC] [--by-section]",
+    "                            [--out DIR] [--profile DIR] [--channel {chrome,msedge,chromium}]",
+    "                            [--connect URL] [--headless] [--signin-timeout SECONDS]",
+    "                            [--page-timeout SECONDS] [--delay SECONDS] [--limit N] [--dry-run]",
     "painter quiz uploads: error: the following arguments are required: --assignment"
    ],
    "requests": [],
@@ -37,9 +37,11 @@
     "--out",
     "<TMP>/o"
    ],
-   "exit": "Assignment 7001 (DATE Scenario) is not a New Quiz; use a normal download run instead.",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "Assignment 7001 (DATE Scenario) is not a New Quiz; use a normal download run instead."
+   ],
    "requests": [
     "GET /api/v1/courses/100/assignments/7001"
    ],

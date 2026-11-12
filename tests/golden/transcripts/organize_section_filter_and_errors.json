@@ -35,9 +35,11 @@
     "--section",
     "zzz"
    ],
-   "exit": "--section 'zzz' matches no section in the roster",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "--section 'zzz' matches no section in the roster"
+   ],
    "requests": [],
    "posted": []
   },
@@ -50,9 +52,11 @@
     "--to",
     "<TMP>/s/in"
    ],
-   "exit": "--to can't be inside the folder being organized",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "--to can't be inside the folder being organized"
+   ],
    "requests": [],
    "posted": []
   },
@@ -63,9 +67,11 @@
     "--roster",
     "<TMP>/roster.csv"
    ],
-   "exit": "organize: <TMP>/nope is not a folder",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "organize: <TMP>/nope is not a folder"
+   ],
    "requests": [],
    "posted": []
   },
@@ -76,9 +82,11 @@
     "--roster",
     "<TMP>/no-roster.csv"
    ],
-   "exit": "Can't read roster <TMP>/no-roster.csv: [Errno 2] No such file or directory: '<TMP>/no-roster.csv'",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "Can't read roster <TMP>/no-roster.csv: [Errno 2] No such file or directory: '<TMP>/no-roster.csv'"
+   ],
    "requests": [],
    "posted": []
   }

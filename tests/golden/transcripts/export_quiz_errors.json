@@ -14,10 +14,10 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] --assignment",
-    "                           ID [--section SPEC] [--student SPEC] [--by-section] [--out DIR]",
-    "                           [--no-answers] [--uploads] [--no-course-export] [--timeout SECONDS]",
-    "                           [--dry-run]",
+    "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                           --assignment ID [--section SPEC] [--student SPEC] [--by-section]",
+    "                           [--out DIR] [--no-answers] [--uploads] [--no-course-export]",
+    "                           [--timeout SECONDS] [--dry-run]",
     "painter quiz export: error: the following arguments are required: --assignment"
    ],
    "requests": [],
@@ -36,9 +36,11 @@
     "--out",
     "<TMP>/o"
    ],
-   "exit": "Assignment 7001 (DATE Scenario) is not a quiz.",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "Assignment 7001 (DATE Scenario) is not a quiz."
+   ],
    "requests": [
     "GET /api/v1/courses/100/assignments/7001"
    ],
@@ -57,9 +59,11 @@
     "--out",
     "<TMP>/o"
    ],
-   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999).",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999)."
+   ],
    "requests": [
     "GET /api/v1/courses/100/assignments/9999"
    ],

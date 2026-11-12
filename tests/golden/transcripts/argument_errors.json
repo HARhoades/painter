@@ -5,7 +5,7 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] <command> ...",
+    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug] <command> ...",
     "painter: error: choose a command (see --help)"
    ],
    "requests": [],
@@ -18,7 +18,7 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] <command> ...",
+    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug] <command> ...",
     "painter: error: choose a command (see --help)"
    ],
    "requests": [],
@@ -33,9 +33,10 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--assignment ID]",
-    "                        [--section SPEC] [--student SPEC] [--out DIR] [--by-section] [--flat]",
-    "                        [--no-extract] [--history] [--no-xlsx] [--log-dir DIR]",
+    "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--out DIR]",
+    "                        [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
+    "                        [--log-dir DIR]",
     "painter download: error: --base-url is required"
    ],
    "requests": [],
@@ -50,9 +51,10 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--assignment ID]",
-    "                        [--section SPEC] [--student SPEC] [--out DIR] [--by-section] [--flat]",
-    "                        [--no-extract] [--history] [--no-xlsx] [--log-dir DIR]",
+    "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--out DIR]",
+    "                        [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
+    "                        [--log-dir DIR]",
     "painter download: error: --course is required"
    ],
    "requests": [],
@@ -69,9 +71,10 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--assignment ID]",
-    "                        [--section SPEC] [--student SPEC] [--out DIR] [--by-section] [--flat]",
-    "                        [--no-extract] [--history] [--no-xlsx] [--log-dir DIR]",
+    "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--out DIR]",
+    "                        [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
+    "                        [--log-dir DIR]",
     "painter download: error: --base-url must be an https:// address, e.g. https://yourschool.instructure.com (got 'http://canvas.test')"
    ],
    "requests": [],
@@ -90,7 +93,7 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] <command> ...",
+    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug] <command> ...",
     "painter: error: unrecognized arguments: --flat"
    ],
    "requests": [],
@@ -104,8 +107,8 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter organize [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] --roster FILE",
-    "                        [--to DIR] [--section SPEC] [--dry-run]",
+    "usage: painter organize [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                        --roster FILE [--to DIR] [--section SPEC] [--dry-run]",
     "                        FOLDER",
     "painter organize: error: the following arguments are required: --roster"
    ],
@@ -128,10 +131,10 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] --assignment",
-    "                           ID [--section SPEC] [--student SPEC] [--by-section] [--out DIR]",
-    "                           [--no-answers] [--uploads] [--no-course-export] [--timeout SECONDS]",
-    "                           [--dry-run]",
+    "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
+    "                           --assignment ID [--section SPEC] [--student SPEC] [--by-section]",
+    "                           [--out DIR] [--no-answers] [--uploads] [--no-course-export]",
+    "                           [--timeout SECONDS] [--dry-run]",
     "painter quiz export: error: --uploads needs the answers report, so not --no-answers"
    ],
    "requests": [],
@@ -153,7 +156,7 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE]",
+    "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
     "                          [--assignment ID] [--section SPEC] [--label NAME] [--ay YY] [--term N]",
     "                          [--dir DIR] [--force]",
     "painter grades new: error: --assignment can be given only once"
@@ -174,7 +177,7 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] <command> ...",
+    "usage: painter [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug] <command> ...",
     "painter: error: argument <command>: invalid choice: '7001' (choose from 'list', 'download', 'roster', 'organize', 'grades', 'quiz')"
    ],
    "requests": [],

@@ -13,7 +13,7 @@
     "--out",
     "<TMP>/o"
    ],
-   "exit": 3,
+   "exit": 1,
    "stdout": [
     "[7004] Old Quiz  (Classic Quiz)",
     "  started export 84",

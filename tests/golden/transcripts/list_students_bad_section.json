@@ -11,9 +11,12 @@
     "--section",
     "nope"
    ],
-   "exit": "No section match for: 'nope'\nRun `painter list sections` to see valid IDs and names.",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "No section match for: 'nope'",
+    "Run `painter list sections` to see valid IDs and names."
+   ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
     "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
@@ -31,9 +34,11 @@
     "--section",
     ""
    ],
-   "exit": "--section needs a value; an empty one would match everything.",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "--section needs a value; an empty one would match everything."
+   ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
     "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"

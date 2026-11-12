@@ -12,9 +12,11 @@
     "--out",
     "<TMP>/o"
    ],
-   "exit": "Unknown timezone 'Mars/Olympus': 'No time zone found with key Mars/Olympus'",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "Unknown timezone 'Mars/Olympus': 'No time zone found with key Mars/Olympus'"
+   ],
    "requests": [],
    "posted": []
   }

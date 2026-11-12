@@ -16,35 +16,21 @@ from __future__ import annotations
 
 import argparse
 import sys
+import textwrap
 
-import requests
-
-from painter.cli import commands
-from painter.cli.console import ConsoleReporter
+from painter.cli import commands, exit_codes
 from painter.config import default_browser_profile
-from painter.errors import CanvasHTTPError, PainterError
-from painter.events import emit
-
-
-# Exit status when Canvas could not be used at all (bad token, no permission,
-# missing item, Canvas down). 1-3 are already taken by individual modes.
-EXIT_CANVAS_ERROR = 4
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the command line; Canvas errors become one line and exit code 4."""
+    """Run the command line and return its exit status (see cli/exit_codes.py)."""
+    debug = "--debug" in (sys.argv[1:] if argv is None else argv)
     try:
         return _run(argv)
-    except CanvasHTTPError as exc:
-        print(f"Error: {exc.hint or 'Canvas returned an error.'}\n  ({exc})",
-              file=sys.stderr)
-        return EXIT_CANVAS_ERROR
-    except PainterError as exc:
-        emit(exc.notes, ConsoleReporter())
-        raise SystemExit(str(exc)) from None
-    except requests.ConnectionError as exc:
-        print(f"Error: could not reach Canvas ({exc}).", file=sys.stderr)
-        return EXIT_CANVAS_ERROR
+    except SystemExit:
+        raise                                   # argparse usage errors: status 2
+    except BaseException as exc:                # Ctrl+C included
+        return exit_codes.for_exception(exc, debug)
 
 
 def _run(argv: list[str] | None) -> int:
@@ -78,6 +64,8 @@ def _global_options(p: argparse.ArgumentParser, suppress: bool) -> None:
     g.add_argument("--tz", metavar="ZONE", default=d(None),
                    help="IANA zone for times shown and logged, e.g. America/New_York "
                         "(default: UTC, as Canvas returns them)")
+    g.add_argument("--debug", action="store_true", default=d(False),
+                   help="on an unexpected error, print the full traceback")
 
 
 def _selection(p: argparse.ArgumentParser) -> None:
@@ -103,7 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
                     "grade files and grade posting, quiz export. "
                     "Token: the CANVAS_API_TOKEN environment variable.",
         epilog="`painter <command> --help` lists a command's options. "
-               "Full manual: docs/manual.md.")
+               "Full manual: docs/manual.md.\n\nexit status:\n" + "\n".join(
+                   textwrap.fill(what, 78, initial_indent=f"  {code:>3}  ",
+                                 subsequent_indent=" " * 7)
+                   for code, what in exit_codes.TABLE),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     _global_options(parser, suppress=False)
     subs = parser.add_subparsers(title="commands", metavar="<command>")
 

@@ -14,7 +14,7 @@
     "--out",
     "<TMP>/o"
    ],
-   "exit": 3,
+   "exit": 1,
    "stdout": [
     "[7003] Quiz 1  (New Quiz)",
     "  2 item(s); 1 converted to QTI",

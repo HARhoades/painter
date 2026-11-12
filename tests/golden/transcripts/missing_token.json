@@ -9,7 +9,7 @@
     "list",
     "assignments"
    ],
-   "exit": 1,
+   "exit": 5,
    "stdout": [],
    "stderr": [
     "Set the CANVAS_API_TOKEN environment variable first."

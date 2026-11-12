@@ -1,5 +1,5 @@
 """One function per command: check the options, build the request, call the
-service with the console reporter, and return the exit code."""
+service with the console reporter, and return the exit status."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas, check_base_url
+from painter.cli import exit_codes
 from painter.cli.console import ConsoleReporter, grade_plan_lines, organize_plan_lines
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
 from painter.domain.duedates import parse_tz
@@ -32,8 +33,7 @@ def selection_from(args) -> Selection:
 
 
 def select_students(roster: Roster, args) -> tuple[set[int] | None, set[int]]:
-    """The old (roster, args) call, kept for the old script's imports.
-    New code uses selection_from(args).resolve(roster)."""
+    """The old (roster, args) call. New code uses selection_from(args).resolve(roster)."""
     res = selection_from(args).resolve(roster)
     emit(res.notes, CONSOLE)
     return res.student_ids, res.section_ids
@@ -41,8 +41,8 @@ def select_students(roster: Roster, args) -> tuple[set[int] | None, set[int]]:
 
 def connect(args, parser, need_course: bool = True) -> Canvas:
     """The Canvas client for a command, after checking --base-url, --course
-    and the token. Exits like any usage error (status 2) if one is missing,
-    or with status 1 if the token is not set."""
+    and the token. A missing option is a usage error (status 2); a missing
+    token is local setup (status 5)."""
     if not args.base_url:
         parser.error("--base-url is required")
     try:
@@ -54,7 +54,7 @@ def connect(args, parser, need_course: bool = True) -> Canvas:
     token = os.environ.get(TOKEN_ENV)
     if not token:
         print(f"Set the {TOKEN_ENV} environment variable first.", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(exit_codes.SETUP)
     return Canvas(args.base_url, token)
 
 
@@ -63,7 +63,7 @@ def list_assignments(args, parser) -> int:
     canvas = connect(args, parser)
     for a in canvas.assignments(args.course):
         print(f"{a['id']:>10}  {a['name']}")
-    return 0
+    return exit_codes.OK
 
 
 def list_sections(args, parser) -> int:
@@ -71,7 +71,7 @@ def list_sections(args, parser) -> int:
     for s in section_listing(Roster.load(canvas, args.course)):
         sis = s["sis_section_id"] or "-"
         print(f"{s['id']:>10}  {sis:<16}  {s['students']:>4} students  {s['name']}")
-    return 0
+    return exit_codes.OK
 
 
 def list_students(args, parser) -> int:
@@ -87,30 +87,33 @@ def list_students(args, parser) -> int:
     print(f"{len(listing.users)} student(s)"
           + (f" of {listing.in_course} in the course" if listing.filtered else ""),
           file=sys.stderr)
-    return 0
+    return exit_codes.OK
 
 
 # ---- download, roster, organize ----------------------------------------------------
 def download(args, parser) -> int:
     canvas = connect(args, parser)
     parse_tz(args.tz)                       # an unknown zone fails before any request
-    result = download_submissions(canvas, DownloadRequest(
+    req = DownloadRequest(
         course_id=args.course, out_root=Path(args.out),
         assignment_ids=tuple(args.assignment or ()), selection=selection_from(args),
         by_section=args.by_section, flat=args.flat, extract=not args.no_extract,
         history=args.history, tz=args.tz, excel_log=not args.no_xlsx,
         log_dir=Path(args.log_dir) if args.log_dir else None,
-        run_started=datetime.now()), CONSOLE)
-    # 1 = finished, but some files are missing (same meaning as grades post).
-    return 1 if result.failures else 0
+        run_started=datetime.now())
+    with CONSOLE.stoppable():
+        result = download_submissions(canvas, req, CONSOLE)
+    return exit_codes.PROBLEMS if result.failures else exit_codes.OK
 
 
 def roster(args, parser) -> int:
     canvas = connect(args, parser)
-    export_roster_csv(canvas, RosterExportRequest(
+    req = RosterExportRequest(
         course_id=args.course, path=Path(args.file), selection=selection_from(args),
-        assignment_ids=tuple(args.assignment or ())), CONSOLE)
-    return 0
+        assignment_ids=tuple(args.assignment or ()))
+    with CONSOLE.stoppable():
+        export_roster_csv(canvas, req, CONSOLE)
+    return exit_codes.OK
 
 
 def organize(args, parser) -> int:
@@ -125,19 +128,22 @@ def organize(args, parser) -> int:
     for line in err:
         print(line, file=sys.stderr)
     if not args.dry_run:
-        execute_organize(plan, CONSOLE)
-    return 0
+        with CONSOLE.stoppable():
+            execute_organize(plan, CONSOLE)
+    return exit_codes.OK
 
 
 # ---- grades ------------------------------------------------------------------------
 def grades_new(args, parser) -> int:
     canvas = connect(args, parser)
-    make_grade_files(canvas, GradeFilesRequest(
+    req = GradeFilesRequest(
         course_id=args.course, out_dir=Path(args.dir),
         section_specs=tuple(args.section or ()),
         assignment_ids=(args.assignment,) if args.assignment else (),
-        label=args.label, ay=args.ay, term=args.term, force=args.force), CONSOLE)
-    return 0
+        label=args.label, ay=args.ay, term=args.term, force=args.force)
+    with CONSOLE.stoppable():
+        make_grade_files(canvas, req, CONSOLE)
+    return exit_codes.OK
 
 
 def grades_post(args, parser) -> int:
@@ -145,8 +151,9 @@ def grades_post(args, parser) -> int:
     front end's job: the service only plans and posts."""
     canvas = connect(args, parser, need_course=False)
     run_started = datetime.now()
-    plans = plan_grades(canvas, [Path(n) for n in args.files], args.course,
-                        args.allow_duplicate_comments)
+    with CONSOLE.stoppable():
+        plans = plan_grades(canvas, [Path(n) for n in args.files], args.course,
+                            args.allow_duplicate_comments)
     for plan in plans.plans:
         for line in grade_plan_lines(plan):
             print(line)
@@ -155,46 +162,50 @@ def grades_post(args, parser) -> int:
         print("\nErrors (nothing was posted):", file=sys.stderr)
         for e in plans.errors:
             print(f"  {e}", file=sys.stderr)
-        return 1
+        return exit_codes.BAD_INPUT
 
     total = plans.total
     if not total:
         print("\nNothing to post.")
-        return 0
+        return exit_codes.OK
     if args.dry_run:
         print(f"\nDry run: {total} update(s) checked, nothing posted.")
-        return 0
+        return exit_codes.OK
     if not args.yes:
         if not sys.stdin.isatty():
             print("\nNot posting without confirmation; rerun with --yes.",
                   file=sys.stderr)
-            return 1
+            return exit_codes.BAD_INPUT
         answer = input(f"\nPost {total} grade/comment update(s) to Canvas? [y/N] ")
         if answer.strip().casefold() not in ("y", "yes"):
             print("Cancelled; nothing posted.")
-            return 0
+            return exit_codes.OK
 
     log_dir = Path(args.log_dir) if args.log_dir else Path(args.files[0]).parent
-    result = post_grade_plans(canvas, plans, log_dir, run_started, CONSOLE)
-    return 1 if result.failed else 0
+    with CONSOLE.stoppable():         # stops only between grade files, never mid-post
+        result = post_grade_plans(canvas, plans, log_dir, run_started, CONSOLE)
+    return exit_codes.PROBLEMS if result.failed else exit_codes.OK
 
 
 # ---- quiz --------------------------------------------------------------------------
 def quiz_export(args, parser) -> int:
-    """Exit code = QuizExportResult.outcome (0-3)."""
+    """Exit status from QuizExportResult.outcome (see exit_codes.QUIZ_EXPORT)."""
     if args.uploads and args.no_answers:
         parser.error("--uploads needs the answers report, so not --no-answers")
     canvas = connect(args, parser)
-    return export_quiz(canvas, QuizExportRequest(
+    req = QuizExportRequest(
         course_id=args.course, assignment_ids=(args.assignment,),
         out_root=Path(args.out), selection=selection_from(args),
         by_section=args.by_section, answers=not args.no_answers,
         uploads=args.uploads, course_export=not args.no_course_export,
-        timeout=args.timeout, dry_run=args.dry_run), CONSOLE).outcome
+        timeout=args.timeout, dry_run=args.dry_run)
+    with CONSOLE.stoppable():
+        result = export_quiz(canvas, req, CONSOLE)
+    return exit_codes.QUIZ_EXPORT[result.outcome]
 
 
 def quiz_uploads(args, parser) -> int:
-    """Exit code = BrowserUploadsResult.outcome (0, 1, 3)."""
+    """Exit status from BrowserUploadsResult.outcome (see exit_codes.QUIZ_UPLOADS)."""
     canvas = connect(args, parser)
     if args.profile is None:
         args.profile = str(default_browser_profile())
@@ -204,11 +215,13 @@ def quiz_uploads(args, parser) -> int:
                   "a signed-in Canvas session: delete it, or move it there to stay "
                   "signed in, especially if this folder is synced to OneDrive.",
                   file=sys.stderr)
-    return browser_quiz_uploads(canvas, BrowserUploadsRequest(
+    req = BrowserUploadsRequest(
         course_id=args.course, assignment_ids=(args.assignment,),
         out_root=Path(args.out), selection=selection_from(args),
         by_section=args.by_section, limit=args.limit, dry_run=args.dry_run,
         profile=Path(args.profile), channel=args.channel,
         connect_url=args.connect, signin_timeout=args.signin_timeout,
-        headless=args.headless, page_timeout=args.page_timeout,
-        delay=args.delay), CONSOLE).outcome
+        headless=args.headless, page_timeout=args.page_timeout, delay=args.delay)
+    with CONSOLE.stoppable():
+        result = browser_quiz_uploads(canvas, req, CONSOLE)
+    return exit_codes.QUIZ_UPLOADS[result.outcome]

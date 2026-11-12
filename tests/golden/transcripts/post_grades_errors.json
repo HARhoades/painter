@@ -9,7 +9,7 @@
     "<TMP>/bad.txt",
     "--yes"
    ],
-   "exit": 1,
+   "exit": 2,
    "stdout": [
     "",
     "bad.txt  (course 100)",
@@ -40,7 +40,7 @@
     "post",
     "<TMP>/junk.txt"
    ],
-   "exit": 1,
+   "exit": 2,
    "stdout": [],
    "stderr": [
     "",
@@ -58,7 +58,7 @@
     "post",
     "<TMP>/missing.txt"
    ],
-   "exit": 1,
+   "exit": 2,
    "stdout": [],
    "stderr": [
     "",

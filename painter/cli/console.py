@@ -1,6 +1,8 @@
 """The command line's Reporter: prints, exactly as the tool always has."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+import signal
 import sys
 
 from painter.services.grading import GradePlan, _preview
@@ -8,6 +10,31 @@ from painter.services.organize import OrganizePlan
 
 
 class ConsoleReporter:
+    """Prints. While a task runs inside stoppable(), the first Ctrl+C asks it
+    to stop at its next safe point (logs and manifest still written); a
+    second Ctrl+C stops at once."""
+
+    def __init__(self):
+        self._stop = False
+
+    @contextmanager
+    def stoppable(self):
+        def first_press(signum, frame):
+            self._stop = True
+            print("\nStopping after the current step (Ctrl+C again to stop now) ...",
+                  file=sys.stderr, flush=True)
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+        try:
+            old = signal.signal(signal.SIGINT, first_press)
+        except ValueError:                  # not the main thread: leave Ctrl+C alone
+            yield
+            return
+        try:
+            yield
+        finally:
+            signal.signal(signal.SIGINT, old)
+            self._stop = False
+
     def info(self, text: str = "", end: str = "\n") -> None:
         print(text, end=end, flush=not end)
 
@@ -21,7 +48,7 @@ class ConsoleReporter:
         pass            # typed events are for a GUI; the text lines say the same
 
     def cancelled(self) -> bool:
-        return False    # Ctrl-C raises KeyboardInterrupt instead
+        return self._stop
 
 
 def grade_plan_lines(plan: GradePlan) -> list[str]:

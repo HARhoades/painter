@@ -224,7 +224,7 @@ def test_post_grades_refuses_when_any_file_has_an_error(fake_canvas, run_cli, tm
     gf = tmp_path / "bad.txt"
     gf.write_text(GRADES.replace("id=502", "id=999"), encoding="utf-8")
     code, _, err = run_cli("--base-url", BASE, "--post-grades", str(gf), "--yes")
-    assert code == 1
+    assert code == 2                                        # bad input
     assert "Errors (nothing was posted):" in err and "no student in the course has id 999" in err
     assert fake_canvas.posted_forms == []
 
@@ -234,7 +234,7 @@ def test_post_grades_without_a_terminal_needs_yes(fake_canvas, run_cli, tmp_path
     gf.write_text(GRADES, encoding="utf-8")
     monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
     code, _, err = run_cli("--base-url", BASE, "--post-grades", str(gf))
-    assert code == 1 and "rerun with --yes" in err
+    assert code == 2 and "rerun with --yes" in err
     assert fake_canvas.posted_forms == []
 
 
@@ -324,7 +324,7 @@ def test_global_options_before_or_after_the_command(fake_canvas, run_cli, tmp_pa
 def test_missing_token(fake_canvas, run_cli, monkeypatch):
     monkeypatch.delenv("CANVAS_API_TOKEN")
     code, _, err = run_cli(*COMMON, "--list-assignments")
-    assert code == 1 and "Set the CANVAS_API_TOKEN environment variable first." in err
+    assert code == 5 and "Set the CANVAS_API_TOKEN environment variable first." in err
 
 
 # ---- Canvas errors (review finding 9) ------------------------------------------
@@ -350,7 +350,7 @@ def test_401_on_assignment_lookup_is_not_reported_as_not_found(fake_canvas, run_
 def test_404_on_assignment_lookup_still_says_not_found(fake_canvas, run_cli, tmp_path):
     code, _, err = run_cli(*COMMON, "--make-grade-files", "--assignment", "9999",
                            "--grade-file-dir", str(tmp_path))
-    assert "Assignment 9999 not found" in str(code)     # SystemExit(message)
+    assert code == 2 and "Assignment 9999 not found" in err
 
 
 def test_typed_errors_are_still_requests_http_errors():

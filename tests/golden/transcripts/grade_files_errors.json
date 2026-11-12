@@ -11,11 +11,13 @@
     "--dir",
     "<TMP>/g"
    ],
-   "exit": "Without --assignment, pass --label NAME for the filename, e.g. --label DATE.",
+   "exit": 2,
    "stdout": [
     "No --section given: writing a file for every section in the course."
    ],
-   "stderr": [],
+   "stderr": [
+    "Without --assignment, pass --label NAME for the filename, e.g. --label DATE."
+   ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
     "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
@@ -40,7 +42,7 @@
    "exit": 2,
    "stdout": [],
    "stderr": [
-    "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE]",
+    "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
     "                          [--assignment ID] [--section SPEC] [--label NAME] [--ay YY] [--term N]",
     "                          [--dir DIR] [--force]",
     "painter grades new: error: --assignment can be given only once"
@@ -61,11 +63,13 @@
     "--dir",
     "<TMP>/g"
    ],
-   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999).",
+   "exit": 2,
    "stdout": [
     "No --section given: writing a file for every section in the course."
    ],
-   "stderr": [],
+   "stderr": [
+    "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999)."
+   ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
     "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
@@ -86,11 +90,13 @@
     "--dir",
     "<TMP>/g"
    ],
-   "exit": "Could not read an academic year and semester from the course term name 'Fall'. Pass --ay and --term, e.g. --ay 27 --term 1.",
+   "exit": 2,
    "stdout": [
     "No --section given: writing a file for every section in the course."
    ],
-   "stderr": [],
+   "stderr": [
+    "Could not read an academic year and semester from the course term name 'Fall'. Pass --ay and --term, e.g. --ay 27 --term 1."
+   ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
     "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",

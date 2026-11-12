@@ -11,9 +11,12 @@
     "--assignment",
     "9999"
    ],
-   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999/submissions).\nRun `painter list assignments` to see valid IDs.",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999/submissions).",
+    "Run `painter list assignments` to see valid IDs."
+   ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
     "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
