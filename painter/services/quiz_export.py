@@ -125,55 +125,75 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
     """
     job = ResumableJob(state_path, ANSWERS_STATE_KEY,
                        {"course_id": course_id, "assignment_id": assignment_id})
-    progress = None
-    saved = job.saved()
-    if saved:
-        try:
-            progress = canvas.progress(saved["progress_id"])
-        except NotFound:          # job expired; a bad token is not this
-            progress = None
-        if progress:
-            st = progress.get("workflow_state")
-            age = time.time() - (parse_ts(progress.get("updated_at")) or
-                                 datetime.fromtimestamp(0).astimezone()).timestamp()
-            if st == "failed" or (st == "completed" and age > REPORT_REUSE_SECONDS):
-                progress = None
-        if progress:
-            reporter.info(f"  resuming report job {progress['id']} "
-                  f"({progress.get('workflow_state')})")
-
+    progress = _resumable_report(canvas, job, reporter)
     deadline = time.monotonic() + timeout
     if progress is None:
-        wait, told = POLL_START, False
-        while True:
-            try:
-                progress = canvas.create_quiz_report(course_id, assignment_id)
-                # A POST that succeeded is never repeated: it may have started
-                # a job even if the reply carries no id (review finding 1).
-                if not isinstance(progress, dict) or not progress.get("id"):
-                    raise RuntimeError("Canvas accepted the student analysis report "
-                                       "request but returned no job id "
-                                       f"({progress!r}); not retrying")
-                break
-            except requests.HTTPError as exc:
-                status = exc.response.status_code if exc.response is not None else None
-                remaining = deadline - time.monotonic()
-                if status != 409:
-                    raise RuntimeError(f"Canvas refused the student analysis report "
-                                       f"({exc})") from exc
-                if remaining <= 0:
-                    raise TimeoutError("another student analysis report for this "
-                                       "quiz was still being generated after "
-                                       f"{timeout:.0f}s; try again later") from exc
-                if not told:
-                    reporter.info("  a student analysis report is already being generated; "
-                          "waiting for it to finish")
-                    told = True
-                canvas.sleep(min(wait, remaining))
-                wait = min(POLL_CAP, wait * POLL_FACTOR)
+        progress = _start_report(canvas, course_id, assignment_id, deadline, timeout,
+                                 reporter)
         job.save(progress_id=progress["id"])
         reporter.info(f"  started report job {progress['id']}")
+    return _finish_report(canvas, job, progress, deadline, timeout, dest, reporter)
 
+
+def _resumable_report(canvas: Canvas, job: ResumableJob, reporter: Reporter) -> dict | None:
+    """The saved report job, if Canvas still has it and it is worth resuming:
+    not failed, and if finished, recent enough to reuse."""
+    saved = job.saved()
+    if not saved:
+        return None
+    try:
+        progress = canvas.progress(saved["progress_id"])
+    except NotFound:          # job expired; a bad token is not this
+        return None
+    if progress:
+        st = progress.get("workflow_state")
+        age = time.time() - (parse_ts(progress.get("updated_at")) or
+                             datetime.fromtimestamp(0).astimezone()).timestamp()
+        if st == "failed" or (st == "completed" and age > REPORT_REUSE_SECONDS):
+            return None
+        reporter.info(f"  resuming report job {progress['id']} "
+              f"({progress.get('workflow_state')})")
+    return progress or None
+
+
+def _start_report(canvas: Canvas, course_id: int, assignment_id: int, deadline: float,
+                  timeout: float, reporter: Reporter) -> dict:
+    """POST the report request once; while Canvas answers 409 (another
+    report is being generated) wait with a growing interval and ask again."""
+    wait, told = POLL_START, False
+    while True:
+        try:
+            progress = canvas.create_quiz_report(course_id, assignment_id)
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            remaining = deadline - time.monotonic()
+            if status != 409:
+                raise RuntimeError(f"Canvas refused the student analysis report "
+                                   f"({exc})") from exc
+            if remaining <= 0:
+                raise TimeoutError("another student analysis report for this "
+                                   "quiz was still being generated after "
+                                   f"{timeout:.0f}s; try again later") from exc
+            if not told:
+                reporter.info("  a student analysis report is already being generated; "
+                      "waiting for it to finish")
+                told = True
+            canvas.sleep(min(wait, remaining))
+            wait = min(POLL_CAP, wait * POLL_FACTOR)
+            continue
+        # A POST that succeeded is never repeated: it may have started a job
+        # even if the reply carries no id (review finding 1).
+        if not isinstance(progress, dict) or not progress.get("id"):
+            raise RuntimeError("Canvas accepted the student analysis report "
+                               "request but returned no job id "
+                               f"({progress!r}); not retrying")
+        return progress
+
+
+def _finish_report(canvas: Canvas, job: ResumableJob, progress: dict, deadline: float,
+                   timeout: float, dest: Path, reporter: Reporter) -> Path:
+    """Wait for the report job, then download its CSV to dest. The saved job
+    is cleared only once the file is down, so a failed download resumes."""
     last = [progress.get("completion")]
 
     def report(p):

@@ -177,6 +177,22 @@ def test_a12_job_state_is_handled_by_resumable_job(tmp_path):
 
 def test_a13_one_uploads_log_writer():
     assert where(['"uploads_log.csv"'], strings=True) == {"services/quiz_uploads.py"}
-    import ast
     src = (PKG / "services/quiz_uploads.py").read_text(encoding="utf-8")
     assert src.count('"uploads_log.csv"') == 1
+
+
+def test_part_b_no_oversized_functions():
+    """Phase 4 part B: no function over 80 lines outside cli/ (the CLI
+    parser is replaced in part D and then covered too)."""
+    import ast
+    long = []
+    for path in PKG.rglob("*.py"):
+        rel = path.relative_to(PKG).as_posix()
+        if rel.startswith("cli/"):
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                n = node.end_lineno - node.lineno + 1
+                if n > 80:
+                    long.append(f"{rel}:{node.name} ({n} lines)")
+    assert not long, long
