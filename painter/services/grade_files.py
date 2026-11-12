@@ -221,6 +221,30 @@ def parse_grade_file(path: Path) -> GradeFile:
     previous comments= value, so comments can span lines. Anything else
     unexpected is an error, reported with its line number.
     """
+    blocks = _read_blocks(path)
+    assigns = [b for b in blocks if b["_kind"] == "ASSIGNMENT"]
+    if len(assigns) != 1:
+        raise GradeFileError(path, None, f"expected one [ASSIGNMENT] block, found {len(assigns)}")
+    sections = [b for b in blocks if b["_kind"] == "SECTION"]
+    if len(sections) > 1:
+        raise GradeFileError(path, None, f"expected at most one [SECTION] block, found {len(sections)}")
+    a = assigns[0]
+    s = sections[0] if sections else {}
+    entries, blank = _student_entries(path, blocks)
+    return GradeFile(
+        path=path,
+        assignment_id=_int_field(path, a, "id", required=True),
+        assignment_title=(a.get("title") or "").strip(),
+        section_id=_int_field(path, s, "id", required=False) if s else None,
+        section_title=(s.get("title") or "").strip(),
+        instructor=(s.get("instructor") or "").strip(),
+        entries=entries,
+        blank_entries=blank,
+    )
+
+
+def _read_blocks(path: Path) -> list[dict]:
+    """The file as a list of blocks: {"_kind", "_line", key: value, ...}."""
     blocks: list[dict] = []
     current: dict | None = None
     last_key = None
@@ -260,29 +284,25 @@ def parse_grade_file(path: Path) -> GradeFile:
             continue
         if stripped:
             raise GradeFileError(path, lineno, f"unexpected line: {stripped!r}")
+    return blocks
 
-    def int_field(block: dict, key: str, required: bool) -> int | None:
-        value = (block.get(key) or "").strip()
-        if not value:
-            if required:
-                raise GradeFileError(path, block["_line"],
-                                     f"[{block['_kind']}] needs {key}=")
-            return None
-        try:
-            return int(value)
-        except ValueError:
-            raise GradeFileError(path, block["_line"],
-                                 f"[{block['_kind']}] {key}={value!r} is not a number")
 
-    assigns = [b for b in blocks if b["_kind"] == "ASSIGNMENT"]
-    if len(assigns) != 1:
-        raise GradeFileError(path, None, f"expected one [ASSIGNMENT] block, found {len(assigns)}")
-    sections = [b for b in blocks if b["_kind"] == "SECTION"]
-    if len(sections) > 1:
-        raise GradeFileError(path, None, f"expected at most one [SECTION] block, found {len(sections)}")
-    a = assigns[0]
-    s = sections[0] if sections else {}
+def _int_field(path: Path, block: dict, key: str, required: bool) -> int | None:
+    value = (block.get(key) or "").strip()
+    if not value:
+        if required:
+            raise GradeFileError(path, block["_line"], f"[{block['_kind']}] needs {key}=")
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        raise GradeFileError(path, block["_line"],
+                             f"[{block['_kind']}] {key}={value!r} is not a number")
 
+
+def _student_entries(path: Path, blocks: list[dict]) -> tuple[list[GradeEntry], int]:
+    """The [STUDENT] blocks with a grade or comment, and how many named
+    students had neither. Empty template slots are ignored."""
     entries, blank = [], 0
     for b in blocks:
         if b["_kind"] != "STUDENT":
@@ -301,14 +321,4 @@ def parse_grade_file(path: Path) -> GradeFile:
             blank += 1
             continue
         entries.append(e)
-
-    return GradeFile(
-        path=path,
-        assignment_id=int_field(a, "id", required=True),
-        assignment_title=(a.get("title") or "").strip(),
-        section_id=int_field(s, "id", required=False) if s else None,
-        section_title=(s.get("title") or "").strip(),
-        instructor=(s.get("instructor") or "").strip(),
-        entries=entries,
-        blank_entries=blank,
-    )
+    return entries, blank
