@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 from pathlib import Path
 import shutil
-import sys
 import time
 import zipfile
 
 import requests
 
 from painter.canvas.client import Canvas
-from painter.errors import NotFound
+from painter.domain.selection import Selection
+from painter.errors import Cancelled, InvalidInput, NotFound
+from painter.events import NULL, Reporter
 from painter.canvas.jobs import (
     POLL_CAP, POLL_FACTOR, POLL_START, _load_state, _save_state, poll_until,
 )
@@ -47,7 +49,8 @@ ANSWERS_STATE_KEY = "new_quiz_report:student_analysis:csv"
 REPORT_REUSE_SECONDS = 30 * 60   # a finished report this recent may be reused
 
 
-def write_answers(raw: Path, plan: QuizExportPlan, name: str) -> tuple[list[Path], list[str]]:
+def write_answers(raw: Path, plan: QuizExportPlan, name: str,
+                  reporter: Reporter = NULL) -> tuple[list[Path], list[str]]:
     """Put the downloaded report into each output folder.
 
     No filters: the report is copied unchanged. With --section/--student or
@@ -76,7 +79,7 @@ def write_answers(raw: Path, plan: QuizExportPlan, name: str) -> tuple[list[Path
                 "the answers can't be filtered by --section/--student/--by-section "
                 "(nothing was written). Report columns: " + ", ".join(header))
         col, kind, uid_of = found
-        print(f"  students identified by column '{header[col]}' ({kind})")
+        reporter.info(f"  students identified by column '{header[col]}' ({kind})")
         if kind == "name":
             notes.append("students in the answers report were matched by name; "
                          "check the split if two students share a name")
@@ -99,7 +102,7 @@ def write_answers(raw: Path, plan: QuizExportPlan, name: str) -> tuple[list[Path
                          "current student roster (e.g. Test Student, dropped "
                          "students) and were left out")
         if dropped:
-            print(f"  {dropped} row(s) for students outside the selection left out")
+            reporter.info(f"  {dropped} row(s) for students outside the selection left out")
     written = []
     for d, rows in out.items():
         d.mkdir(parents=True, exist_ok=True)
@@ -110,13 +113,14 @@ def write_answers(raw: Path, plan: QuizExportPlan, name: str) -> tuple[list[Path
             w.writerow(header)
             w.writerows(rows)
         tmp.replace(dest)
-        print(f"  {dest}: {len(rows)} row(s)")
+        reporter.info(f"  {dest}: {len(rows)} row(s)")
         written.append(dest)
     return written, notes
 
 
 def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
-                    state_path: Path, dest: Path, timeout: float) -> Path:
+                    state_path: Path, dest: Path, timeout: float,
+                    reporter: Reporter = NULL) -> Path:
     """Generate the student analysis report, wait for it, download it to dest.
 
     The Progress ID is saved to state_path as soon as Canvas returns it; a
@@ -142,7 +146,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
             if st == "failed" or (st == "completed" and age > REPORT_REUSE_SECONDS):
                 progress = None
         if progress:
-            print(f"  resuming report job {progress['id']} "
+            reporter.info(f"  resuming report job {progress['id']} "
                   f"({progress.get('workflow_state')})")
 
     deadline = time.monotonic() + timeout
@@ -169,7 +173,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
                                        "quiz was still being generated after "
                                        f"{timeout:.0f}s; try again later") from exc
                 if not told:
-                    print("  a student analysis report is already being generated; "
+                    reporter.info("  a student analysis report is already being generated; "
                           "waiting for it to finish")
                     told = True
                 canvas.sleep(min(wait, remaining))
@@ -178,14 +182,14 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
                                     "assignment_id": assignment_id,
                                     "progress_id": progress["id"]}
         _save_state(state_path, state)
-        print(f"  started report job {progress['id']}")
+        reporter.info(f"  started report job {progress['id']}")
 
     last = [progress.get("completion")]
 
     def report(p):
         if p.get("completion") != last[0] and p.get("completion") is not None:
             last[0] = p.get("completion")
-            print(f"  report {p['id']}: {p.get('workflow_state')} {last[0]}%")
+            reporter.info(f"  report {p['id']}: {p.get('workflow_state')} {last[0]}%")
 
     progress, done = poll_until(
         lambda: canvas.progress(progress["id"]),
@@ -208,7 +212,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
     dest.unlink(missing_ok=True)
     got = canvas.fetch_file(url, dest, auth=True)
     if got.note:
-        print(got.note, file=sys.stderr)
+        reporter.warning(got.note)
     state.pop(ANSWERS_STATE_KEY, None)      # kept until now so a failed
     _save_state(state_path, state)          # download can resume the job
     return dest
@@ -240,7 +244,7 @@ def _find_orphan_export(canvas: Canvas, course_id: int, export_type: str,
 
 def run_content_export(canvas: Canvas, course_id: int, export_type: str,
                        select: dict[str, list], state_path: Path,
-                       dest: Path, timeout: float) -> Path:
+                       dest: Path, timeout: float, reporter: Reporter = NULL) -> Path:
     """Start (or resume) a content export, wait for it, download it to dest.
 
     Duplicate protection: the job ID is saved to state_path the moment Canvas
@@ -262,7 +266,7 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
         if export and (export.get("workflow_state") == "failed" or _export_expired(export)):
             export = None
         if export:
-            print(f"  resuming export {export['id']} started "
+            reporter.info(f"  resuming export {export['id']} started "
                   f"{fmt_ts(export.get('created_at'))} UTC (state "
                   f"{export.get('workflow_state')})")
 
@@ -277,10 +281,10 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
                     f"starting the {export_type} export failed ({exc}). Canvas may "
                     "still have started it: check Settings > Export Course Content "
                     "before rerunning.") from exc
-            print(f"  the request errored, but Canvas started export {export['id']}; "
+            reporter.info(f"  the request errored, but Canvas started export {export['id']}; "
                   "using it")
         else:
-            print(f"  started export {export['id']}")
+            reporter.info(f"  started export {export['id']}")
         state[key] = {"course_id": course_id, "export_id": export["id"],
                       "created_at": export.get("created_at")}
         _save_state(state_path, state)
@@ -290,7 +294,7 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
     def report(e):
         if e.get("workflow_state") != last_state[0]:
             last_state[0] = e.get("workflow_state")
-            print(f"  export {e['id']}: {last_state[0]}")
+            reporter.info(f"  export {e['id']}: {last_state[0]}")
 
     export, done = poll_until(
         lambda: canvas.content_export(course_id, export["id"]),
@@ -314,7 +318,7 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
     dest.unlink(missing_ok=True)            # never treat an old file as cached
     got = canvas.fetch_file(attachment["url"], dest, attachment.get("size"), auth=True)
     if got.note:
-        print(got.note, file=sys.stderr)
+        reporter.warning(got.note)
     if not zipfile.is_zipfile(dest):
         raise IOError(f"export {export['id']} download is not a zip package")
     state.pop(key, None)
@@ -351,30 +355,57 @@ def package_contains_quiz(path: Path, quiz: dict, items: list[dict]) -> tuple[bo
     return True, f"{len(qti_files)} quiz file(s) inside"
 
 
-def export_quiz(canvas: Canvas, args) -> int:
-    """--export-quiz: download one quiz's student answers and its content."""
-    if not args.assignment or len(args.assignment) != 1:
-        raise SystemExit("--export-quiz needs exactly one --assignment "
-                         "(the quiz's assignment ID; see --list-assignments).")
-    cid, aid = args.course, args.assignment[0]
+# QuizExportResult.outcome (the CLI's exit codes)
+EXPORTED, NOTHING_SELECTED, COURSE_EXPORT_INCOMPLETE, ANSWERS_MISSING = 0, 1, 2, 3
+
+
+@dataclass
+class QuizExportRequest:
+    course_id: int
+    assignment_ids: tuple[int, ...]        # exactly one: the quiz's assignment
+    out_root: Path
+    selection: Selection = field(default_factory=Selection)
+    by_section: bool = False               # a folder per section
+    answers: bool = True                   # the student analysis report
+    uploads: bool = False                  # files linked from that report
+    course_export: bool = True             # Common Cartridge package
+    timeout: float = 900                   # per Canvas job
+    dry_run: bool = False                  # read the quiz, write and start nothing
+
+
+@dataclass
+class QuizExportResult:
+    outcome: int                           # EXPORTED ... ANSWERS_MISSING
+    files: list[Path] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def export_quiz(canvas: Canvas, req: QuizExportRequest,
+                reporter: Reporter = NULL) -> QuizExportResult:
+    """Download one quiz's student answers and its content."""
+    if len(req.assignment_ids) != 1:
+        raise InvalidInput("--export-quiz needs exactly one --assignment "
+                           "(the quiz's assignment ID; see --list-assignments).")
+    cid, aid = req.course_id, req.assignment_ids[0]
     try:
         assignment = canvas.assignment(cid, aid)
     except NotFound as exc:
-        raise SystemExit(f"Assignment {aid} not found in course {cid} ({exc}).")
+        raise InvalidInput(f"Assignment {aid} not found in course {cid} ({exc}).")
     kind = quiz_kind(assignment)
     if kind is None:
-        raise SystemExit(f"Assignment {aid} ({assignment.get('name')}) is not a quiz.")
-    print(f"[{aid}] {assignment.get('name')}  "
+        raise InvalidInput(f"Assignment {aid} ({assignment.get('name')}) is not a quiz.")
+    reporter.info(f"[{aid}] {assignment.get('name')}  "
           f"({'New Quiz' if kind == 'new' else 'Classic Quiz'})")
 
-    plan = quiz_export_plan(canvas, args, assignment)
+    plan = quiz_export_plan(canvas, cid, req.out_root, assignment, req.selection,
+                            req.by_section, reporter)
     if plan is None:
-        print("None of the selected students are assigned this quiz; nothing "
-              "exported.", file=sys.stderr)
-        return 1
-    adir, note = assignment_folder(Path(args.out), assignment)
+        reporter.warning("None of the selected students are assigned this quiz; nothing "
+              "exported.")
+        return QuizExportResult(NOTHING_SELECTED)
+    adir, note = assignment_folder(Path(req.out_root), assignment)
     if note:
-        print(note, file=sys.stderr)
+        reporter.warning(note)
     primary = plan.dirs[0]
     stem = slug(assignment.get("name") or str(aid), 50)
     state_path = adir / EXPORT_STATE_FILE
@@ -387,16 +418,16 @@ def export_quiz(canvas: Canvas, args) -> int:
     if kind == "classic":
         quiz_id = assignment.get("quiz_id")
         if not quiz_id:
-            raise SystemExit("Classic quiz with no quiz_id on its assignment.")
-        if args.dry_run:
-            print(f"Dry run: would export Classic quiz {quiz_id} as QTI to {primary}")
-            return 0
+            raise InvalidInput("Classic quiz with no quiz_id on its assignment.")
+        if req.dry_run:
+            reporter.info(f"Dry run: would export Classic quiz {quiz_id} as QTI to {primary}")
+            return QuizExportResult(EXPORTED)
         dest = primary / f"{stem}_qti.zip"
         run_content_export(canvas, cid, "qti", {"quizzes": [quiz_id]}, state_path,
-                           adir / f".{stem}_qti.download", args.export_timeout
+                           adir / f".{stem}_qti.download", req.timeout, reporter
                            ).replace(dest)
         shared.append(dest)
-        if not args.no_answers:
+        if req.answers:
             warnings.append("student answers are only implemented for New Quizzes; "
                             "this Classic Quiz was exported without them")
             answers_missing = True
@@ -408,21 +439,21 @@ def export_quiz(canvas: Canvas, args) -> int:
         for it in QtiBuilder.ordered(items):
             builder.add(it)
         in_qti = sum(1 for r in builder.report if r["In QTI"] == "yes")
-        print(f"  {len(items)} item(s); {in_qti} converted to QTI")
+        reporter.info(f"  {len(items)} item(s); {in_qti} converted to QTI")
         for r in builder.report:
             mark = " " if r["In QTI"] == "yes" else "!"
             label = r["Question Type"] or r["Entry Type"]
             note = f"  -- {r['Notes']}" if r["Notes"] else ""
-            print(f"   {mark} {str(r['Position']):>3}  {label:<16} "
+            reporter.info(f"   {mark} {str(r['Position']):>3}  {label:<16} "
                   f"{(r['Title'] or '')[:40]}{note}")
-        if args.dry_run:
-            what = [] if args.no_answers else ["request the student analysis report"]
-            if not args.no_course_export:
+        if req.dry_run:
+            what = ["request the student analysis report"] if req.answers else []
+            if req.course_export:
                 what.append("start a course export")
-            print("Dry run: nothing written" + (", did not " + " or ".join(what)
+            reporter.info("Dry run: nothing written" + (", did not " + " or ".join(what)
                                                if what else "") + ".")
-            print("Output folder(s): " + ", ".join(str(d) for d in plan.dirs))
-            return 0
+            reporter.info("Output folder(s): " + ", ".join(str(d) for d in plan.dirs))
+            return QuizExportResult(EXPORTED)
         if not items:
             warnings.append("the quiz has no items")
 
@@ -431,7 +462,7 @@ def export_quiz(canvas: Canvas, args) -> int:
         tmp = json_path.with_name(json_path.name + ".part")
         tmp.write_text(json.dumps({
             "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "canvas_host": args.base_url, "course_id": cid, "assignment_id": aid,
+            "canvas_host": canvas.base, "course_id": cid, "assignment_id": aid,
             "assignment_name": assignment.get("name"),
             "quiz": quiz, "items": items}, indent=2, ensure_ascii=False),
             encoding="utf-8")
@@ -454,21 +485,25 @@ def export_quiz(canvas: Canvas, args) -> int:
             warnings.append(f"{len(items) - in_qti} item(s) are in the JSON but not "
                             f"the QTI; see {report_path.name}")
 
-        if not args.no_answers:
-            print("Student answers (student analysis report):")
+        if req.answers:
+            if reporter.cancelled():
+                raise Cancelled("stopped before the student analysis report")
+            reporter.info("Student answers (student analysis report):")
             raw = adir / f".{stem}_student-answers.download"
             try:
-                run_quiz_report(canvas, cid, aid, state_path, raw, args.export_timeout)
-                files, notes = write_answers(raw, plan, f"{stem}_student-answers.csv")
+                run_quiz_report(canvas, cid, aid, state_path, raw, req.timeout, reporter)
+                files, notes = write_answers(raw, plan, f"{stem}_student-answers.csv",
+                                             reporter)
                 per_dir += files
                 warnings += notes
-                if args.quiz_uploads:
-                    print("File Upload answers (links in the report):")
+                if req.uploads:
+                    reporter.info("File Upload answers (links in the report):")
                     try:
-                        n, notes = download_report_uploads(canvas, raw, plan, cid, stem)
+                        n, notes = download_report_uploads(canvas, raw, plan, cid, stem,
+                                                           reporter)
                         warnings += notes
                         if n:
-                            print(f"  {n} uploaded file(s) saved under "
+                            reporter.info(f"  {n} uploaded file(s) saved under "
                                   f"{stem}_uploads/")
                     except (OSError, ValueError, csv.Error,
                             requests.RequestException) as exc:
@@ -480,19 +515,21 @@ def export_quiz(canvas: Canvas, args) -> int:
             finally:
                 raw.unlink(missing_ok=True)    # the unfiltered report never stays
 
-        if not args.no_course_export:
-            print("Course export (Common Cartridge) of this quiz's assignment:")
+        if req.course_export:
+            if reporter.cancelled():
+                raise Cancelled("stopped before the course export")
+            reporter.info("Course export (Common Cartridge) of this quiz's assignment:")
             tmp_cc = adir / f".{stem}_course-export.download"
             try:
                 run_content_export(canvas, cid, "common_cartridge",
                                    {"assignments": [aid]}, state_path, tmp_cc,
-                                   args.export_timeout)
+                                   req.timeout, reporter)
                 ok, why = package_contains_quiz(tmp_cc, quiz, items)
                 if ok:
                     cc_path = primary / f"{stem}_course-export.imscc"
                     tmp_cc.replace(cc_path)
                     shared.append(cc_path)
-                    print(f"  kept: {why}")
+                    reporter.info(f"  kept: {why}")
                 else:
                     warnings.append(f"course export not kept: {why}")
             except (RuntimeError, TimeoutError, OSError,
@@ -509,16 +546,18 @@ def export_quiz(canvas: Canvas, args) -> int:
         for f in shared:
             shutil.copy2(f, extra / f.name)
 
-    print("\nExported:")
+    reporter.info("\nExported:")
     names = [f.name for f in shared] + sorted({f.name for f in per_dir})
+    exported: list[Path] = []
     for d in plan.dirs:
         for n in names:
             p = d / n
             if p.exists():
-                print(f"  {p}  ({p.stat().st_size:,} bytes)")
+                exported.append(p)
+                reporter.info(f"  {p}  ({p.stat().st_size:,} bytes)")
     for w_ in warnings:
-        print(f"  ! {w_}", file=sys.stderr)
-    print(f"API use: {canvas.rate_summary()}")
-    if answers_missing:
-        return 3
-    return 2 if course_incomplete else 0
+        reporter.warning(f"  ! {w_}")
+    reporter.info(f"API use: {canvas.rate_summary()}")
+    outcome = (ANSWERS_MISSING if answers_missing else
+               COURSE_EXPORT_INCOMPLETE if course_incomplete else EXPORTED)
+    return QuizExportResult(outcome, exported, warnings)

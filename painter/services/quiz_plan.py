@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 
 from painter.canvas.client import Canvas
-from painter.domain.selection import select_students
+from painter.domain.selection import Selection
+from painter.events import NULL, Reporter, emit
 from painter.domain.assignments import assignment_folder
 from painter.domain.matching import _letters
 from painter.domain.naming import slug
@@ -22,7 +22,9 @@ class QuizExportPlan:
     roster: Roster | None = None
 
 
-def quiz_export_plan(canvas: Canvas, args, assignment: dict) -> QuizExportPlan | None:
+def quiz_export_plan(canvas: Canvas, course_id: int, out_root: Path, assignment: dict,
+                     selection: Selection = Selection(), by_section: bool = False,
+                     reporter: Reporter = NULL) -> QuizExportPlan | None:
     """Apply --section/--student/--by-section to a quiz export.
 
     The filters pick whose answers are kept: selected students who are
@@ -30,23 +32,24 @@ def quiz_export_plan(canvas: Canvas, args, assignment: dict) -> QuizExportPlan |
     holding that section's answers plus a copy of the quiz content. Returns
     None when no selected student is assigned the quiz.
     """
-    adir, note = assignment_folder(Path(args.out), assignment)
+    adir, note = assignment_folder(Path(out_root), assignment)
     if note:
-        print(note, file=sys.stderr)
-    if not (args.section or args.student or args.by_section):
+        reporter.warning(note)
+    if not (selection.active or by_section):
         return QuizExportPlan([adir])
-    roster = Roster(canvas.sections(args.course),
-                    canvas.student_enrollments(args.course))
-    student_ids, section_ids = select_students(roster, args)
-    assigned = assigned_students(canvas, args.course, [assignment["id"]])
+    roster = Roster.load(canvas, course_id)
+    chosen_ = selection.resolve(roster)
+    emit(chosen_.notes, reporter)
+    student_ids, section_ids = chosen_.student_ids, chosen_.section_ids
+    assigned = assigned_students(canvas, course_id, [assignment["id"]])
     chosen = assigned if student_ids is None else student_ids & assigned
     if student_ids is not None:
-        print(f"{len(chosen)} of {len(student_ids)} selected student(s) are "
+        reporter.info(f"{len(chosen)} of {len(student_ids)} selected student(s) are "
               "assigned this quiz.")
     if not chosen:
         return None
     selected = chosen if student_ids is not None else None
-    if not args.by_section:
+    if not by_section:
         return QuizExportPlan([adir], selected, None, roster)
     dir_of = {u: adir / slug((roster.primary_section(u, section_ids) or {}).get("name")
                              or "no-section", 40) for u in chosen}

@@ -119,3 +119,23 @@ def test_student_listing(canvas):
     roster = Roster.load(canvas, 100)
     listing = student_listing(canvas, 100, roster, Selection.of(["A2"]), (7001,))
     assert [u["id"] for u in listing.users] == [503, 502] and listing.filtered
+
+
+def test_quiz_export_service(canvas, fake_canvas, tmp_path, capsys):
+    from golden.scenarios import add_new_quiz
+    from painter.errors import InvalidInput
+    from painter.services.quiz_export import EXPORTED, QuizExportRequest, export_quiz
+    add_new_quiz(fake_canvas)
+    dry = export_quiz(canvas, QuizExportRequest(100, (7003,), tmp_path / "d", dry_run=True))
+    assert dry.outcome == EXPORTED and not (tmp_path / "d").exists()
+    rep = RecordingReporter()
+    res = export_quiz(canvas, QuizExportRequest(100, (7003,), tmp_path / "o",
+                                                course_export=False), rep)
+    assert res.outcome == EXPORTED
+    assert sorted(p.name for p in res.files) == [
+        "Quiz-1_new-quiz.json", "Quiz-1_qti-report.csv", "Quiz-1_qti.zip",
+        "Quiz-1_student-answers.csv"]
+    assert any("not the QTI" in w for w in res.warnings)
+    with pytest.raises(InvalidInput, match="is not a quiz"):
+        export_quiz(canvas, QuizExportRequest(100, (7001,), tmp_path / "x"))
+    assert capsys.readouterr() == ("", "")

@@ -19,6 +19,7 @@ from painter.events import emit
 from painter.services.grade_files import GradeFilesRequest, make_grade_files
 from painter.services.grading import plan_grades, post_grade_plans
 from painter.services.organize import OrganizeRequest, execute_organize, plan_organize
+from painter.services.quiz_export import QuizExportRequest, export_quiz as run_quiz_export
 from painter.services.roster_export import RosterExportRequest, export_roster_csv
 from painter.services.submissions import (
     DownloadRequest, download_submissions, section_listing, student_listing,
@@ -142,3 +143,13 @@ def download(canvas: Canvas, args, run_started: datetime) -> int:
         run_started=run_started), CONSOLE)
     # 1 = finished, but some files are missing (same meaning as --post-grades).
     return 1 if result.failures else 0
+
+
+def export_quiz(canvas: Canvas, args) -> int:
+    """--export-quiz; exit code = QuizExportResult.outcome (0-3)."""
+    return run_quiz_export(canvas, QuizExportRequest(
+        course_id=args.course, assignment_ids=tuple(args.assignment or ()),
+        out_root=Path(args.out), selection=selection_from(args),
+        by_section=args.by_section, answers=not args.no_answers,
+        uploads=args.quiz_uploads, course_export=not args.no_course_export,
+        timeout=args.export_timeout, dry_run=args.dry_run), CONSOLE).outcome

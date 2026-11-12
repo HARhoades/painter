@@ -15,7 +15,6 @@ from painter.cli.console import ConsoleReporter
 from painter.errors import CanvasHTTPError, PainterError
 from painter.events import emit
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
-from painter.services.quiz_export import export_quiz
 from painter.services.quiz_uploads import browser_quiz_uploads
 
 
@@ -235,7 +234,7 @@ def _main() -> int:
         return commands.roster_csv(canvas, args)
 
     if args.export_quiz:
-        return export_quiz(canvas, args)
+        return commands.export_quiz(canvas, args)
 
     if args.browser_uploads:
         return browser_quiz_uploads(canvas, args)

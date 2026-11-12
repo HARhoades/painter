@@ -11,7 +11,9 @@ import time
 import requests
 
 from painter.canvas.client import Canvas
+from painter.domain.selection import Selection
 from painter.errors import NotFound
+from painter.events import NULL, Reporter
 from painter.domain.assignments import quiz_kind
 from painter.domain.matching import name_matches
 from painter.domain.naming import safe_filename, slug
@@ -57,7 +59,8 @@ def _is_file_link(url: str, canvas_host: str) -> bool:
 
 
 def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
-                            course_id: int, stem: str) -> tuple[int, list[str]]:
+                            course_id: int, stem: str,
+                            reporter: Reporter = NULL) -> tuple[int, list[str]]:
     """Download every file linked from the answers report into
     <folder>/<Quiz>_uploads/<Student>_<id>/. Returns (files saved, notes)."""
     with open(raw, newline="", encoding="utf-8-sig") as fh:
@@ -92,7 +95,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
                       if upload_cells else "")
                    + ". Report columns: " + ", ".join(header)]
 
-    print(f"  {len(links)} file link(s) found in the report")
+    reporter.info(f"  {len(links)} file link(s) found in the report")
     saved, notes, log = 0, [], []
     seen: set[tuple[int | None, str]] = set()
     for r, c, url in links:
@@ -125,20 +128,20 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
                 target = folder / f"{question}__{fname}"
                 fresh = canvas.fetch_file(meta["url"], target, meta.get("size"))
                 if fresh.note:
-                    print(fresh.note, file=sys.stderr)
+                    reporter.warning(fresh.note)
             else:
                 fname = safe_filename(requests.utils.unquote(
                     requests.utils.urlparse(url).path.rsplit("/", 1)[-1]) or "file")
                 target = folder / f"{question}__{fname}"
                 fresh = canvas.fetch_file(url, target, auth=(host == canvas_host))
                 if fresh.note:
-                    print(fresh.note, file=sys.stderr)
+                    reporter.warning(fresh.note)
             saved += 1
             status = "downloaded" if fresh else "cached"
-            print(f"    {status} {target.relative_to(base)}")
+            reporter.info(f"    {status} {target.relative_to(base)}")
         except (requests.RequestException, OSError, KeyError) as exc:
             status = f"failed: {exc}"
-            print(f"    ! {who}: {url}: {exc}")
+            reporter.info(f"    ! {who}: {url}: {exc}")
         log.append({"student_folder": who, "user_id": uid or "",
                     "report_column": header[c] if c < len(header) else c,
                     "url": url, "file": fname, "status": status})
@@ -206,6 +209,12 @@ def uploads_in_results(results) -> list[dict]:
     return out
 
 
+def _console():
+    """TEMPORARY (phase 3): printing reporter until step 10 converts this flow."""
+    from painter.cli.console import ConsoleReporter
+    return ConsoleReporter()
+
+
 def browser_quiz_uploads(canvas: Canvas, args) -> int:
     """--browser-uploads: download a New Quiz's File Upload answers through
     SpeedGrader in a Playwright-driven browser."""
@@ -222,7 +231,9 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
                          "New Quiz; use a normal download run instead.")
     print(f"[{aid}] {assignment.get('name')}  (New Quiz)")
 
-    plan = quiz_export_plan(canvas, args, assignment)
+    plan = quiz_export_plan(canvas, cid, Path(args.out), assignment,
+                            Selection.of(args.section, args.student), args.by_section,
+                            _console())
     if plan is None:
         print("None of the selected students are assigned this quiz.", file=sys.stderr)
         return 1

@@ -387,9 +387,10 @@ from painter.services.quiz_uploads import (  # noqa: F401
 from painter.services.quiz_export import (  # noqa: F401
     ANSWERS_STATE_KEY, EXPORT_FINAL_STATES, EXPORT_MAX_AGE_DAYS, EXPORT_STATE_FILE,
     ORPHAN_WINDOW_SECONDS, REPORT_REUSE_SECONDS, _export_expired,
-    _find_orphan_export, export_quiz, package_contains_quiz, run_content_export,
-    run_quiz_report, write_answers,
+    _find_orphan_export, package_contains_quiz, run_content_export,
+    run_quiz_report, write_answers, QuizExportRequest, QuizExportResult,
 )
+from painter.cli.commands import export_quiz  # noqa: F401
 from painter.cli.main import (  # noqa: F401
     main,
 )
