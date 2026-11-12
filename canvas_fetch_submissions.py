@@ -328,8 +328,9 @@ from painter.domain.roster import (  # noqa: F401
     resolve_sections, resolve_students, section_instructors, split_name,
 )
 from painter.domain.selection import (  # noqa: F401
-    Selection, select_students,
+    Selection,
 )
+from painter.cli.commands import select_students  # noqa: F401
 from painter.domain.assignments import (  # noqa: F401
     assignment_dir_name, assignment_folder, quiz_kind,
 )

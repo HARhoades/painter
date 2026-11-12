@@ -58,13 +58,3 @@ class Resolved:
     student_ids: set[int] | None          # None: no filter, everyone
     section_ids: set[int]
     notes: list[Note] = field(default_factory=list)
-
-
-def select_students(roster: Roster, args) -> tuple[set[int] | None, set[int]]:
-    """TEMPORARY (phase 3): the old args-based call, printing its notes.
-    Removed once every service takes a Selection (step 11)."""
-    import sys
-    res = Selection.of(args.section, args.student).resolve(roster)
-    for kind, text in res.notes:
-        print(text, file=sys.stderr if kind == "warning" else sys.stdout)
-    return res.student_ids, res.section_ids

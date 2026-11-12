@@ -33,6 +33,14 @@ def selection_from(args) -> Selection:
     return Selection.of(getattr(args, "section", None), getattr(args, "student", None))
 
 
+def select_students(roster: Roster, args) -> tuple[set[int] | None, set[int]]:
+    """The old (roster, args) call, kept for the old script's imports.
+    New code uses selection_from(args).resolve(roster)."""
+    res = selection_from(args).resolve(roster)
+    emit(res.notes, CONSOLE)
+    return res.student_ids, res.section_ids
+
+
 def roster_csv(canvas: Canvas, args) -> int:
     """--roster-csv"""
     export_roster_csv(canvas, RosterExportRequest(
