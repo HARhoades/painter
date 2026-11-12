@@ -104,3 +104,28 @@ def test_primary_section_skips_a_course_wide_default_section():
     assert r.primary_section(502, {10})["id"] == 10      # explicitly selected
     # a section that everyone is in, with nothing else, is a real section
     assert catch_all_sections({1: [10], 2: [10]}) == set()
+
+
+def test_section_specs_stop_at_the_best_tier():
+    """Review finding 10."""
+    sections = [{"id": 1, "name": "A1"}, {"id": 2, "name": "A1-8"},
+                {"id": 3, "name": "A10-3"}, {"id": 4, "name": "Lab 1"},
+                {"id": 41, "name": "Section 41"}]
+    r = Roster(sections, [])
+    assert resolve_sections(r, ["A1"]) == {1}                # exact name wins
+    assert resolve_sections(r, ["a1-"]) == {2}               # partial still works
+    assert resolve_sections(r, ["1"]) == {1}                 # exact id, not "Lab 1" etc.
+    assert resolve_sections(r, ["41"]) == {41}
+    for empty in ("", "   "):
+        with pytest.raises(SystemExit, match="needs a value"):
+            resolve_sections(r, [empty])
+
+
+def test_student_specs_stop_at_the_best_tier():
+    r = Roster(SECTIONS, [enrollment(501, 11, "Lee, Ann"),
+                          enrollment(502, 11, "Leeson, Ann", login="ann")])
+    assert resolve_students(r, ["Ann Lee"]) == {501}         # exact name, not Leeson
+    assert resolve_students(r, ["ann"]) == {502}             # exact login wins
+    assert resolve_students(r, ["lee"]) == {501, 502}        # partial: both
+    with pytest.raises(SystemExit, match="needs a value"):
+        resolve_students(r, [""])

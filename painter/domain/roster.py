@@ -86,6 +86,59 @@ class Roster:
         return self.section_by_id.get(ranked[0])
 
 
+# Spec matching runs in tiers and stops at the first tier with any hit, so an
+# exact ID never also pulls in sections whose names merely contain it, and
+# "A1" picks section "A1" over "A1-8" and "A10-3" (review finding 10).
+EXACT_ID, EXACT_NAME, PARTIAL_NAME = 0, 1, 2
+
+
+def match_tier(spec: str, ids, names) -> int | None:
+    """How well spec identifies something with these ids and names, or None."""
+    spec = spec.strip()
+    if not spec:
+        return None
+    if spec in {str(i) for i in ids if i not in (None, "")}:
+        return EXACT_ID
+    folded = spec.casefold()
+    names = [n for n in names if n]
+    if any(folded == n.casefold() for n in names):
+        return EXACT_NAME
+    if any(folded in n.casefold() for n in names):
+        return PARTIAL_NAME
+    return None
+
+
+def best_matches(spec: str, items, ids_of, names_of) -> list:
+    """The items in the best tier that spec reaches (empty if none)."""
+    tiers = {}
+    for item in items:
+        t = match_tier(spec, ids_of(item), names_of(item))
+        if t is not None:
+            tiers.setdefault(t, []).append(item)
+    return tiers[min(tiers)] if tiers else []
+
+
+def _section_ids(s: dict):
+    return (s.get("id"), s.get("sis_section_id"))
+
+
+def _section_names(s: dict):
+    return (s.get("name"),)
+
+
+def _student_ids(u: dict):
+    return (u.get("id"), u.get("sis_user_id"), u.get("login_id"))
+
+
+def _student_names(u: dict):
+    return (u.get("name"), u.get("sortable_name"))
+
+
+def _reject_empty(specs: list[str], flag: str) -> None:
+    if any(not (s or "").strip() for s in specs):
+        raise SystemExit(f"{flag} needs a value; an empty one would match everything.")
+
+
 def match_section(spec: str, section: dict) -> bool:
     """Does one --section spec identify this section?
 
@@ -93,11 +146,7 @@ def match_section(spec: str, section: dict) -> bool:
     case-insensitive substring match on the section name. Section names are
     not unique in Canvas, so ID matching is checked first.
     """
-    spec = spec.strip()
-    exact = {str(section.get("id", "")), str(section.get("sis_section_id") or "")}
-    if spec and spec in exact:
-        return True
-    return spec.casefold() in (section.get("name") or "").casefold()
+    return match_tier(spec, _section_ids(section), _section_names(section)) is not None
 
 
 def resolve_sections(roster: Roster, specs: list[str]) -> set[int]:
@@ -105,8 +154,9 @@ def resolve_sections(roster: Roster, specs: list[str]) -> set[int]:
     selected: set[int] = set()
     unmatched: list[str] = []
 
+    _reject_empty(specs, "--section")
     for spec in specs:
-        hits = [s for s in roster.sections if match_section(spec, s)]
+        hits = best_matches(spec, roster.sections, _section_ids, _section_names)
         if not hits:
             unmatched.append(spec)
             continue
@@ -130,17 +180,7 @@ def match_student(spec: str, user: dict) -> bool:
     Exact match on Canvas ID / SIS ID / login, otherwise a case-insensitive
     substring match on either form of the name.
     """
-    spec = spec.strip()
-    exact = {
-        str(user.get("id", "")),
-        str(user.get("sis_user_id") or ""),
-        str(user.get("login_id") or ""),
-    }
-    if spec in exact and spec:
-        return True
-    needle = spec.casefold()
-    haystacks = (user.get("name") or "", user.get("sortable_name") or "")
-    return any(needle in h.casefold() for h in haystacks)
+    return match_tier(spec, _student_ids(user), _student_names(user)) is not None
 
 
 def resolve_students(roster: Roster, specs: list[str]) -> set[int]:
@@ -148,8 +188,9 @@ def resolve_students(roster: Roster, specs: list[str]) -> set[int]:
     selected: set[int] = set()
     unmatched: list[str] = []
 
+    _reject_empty(specs, "--student")
     for spec in specs:
-        hits = [u for u in roster.users.values() if match_student(spec, u)]
+        hits = best_matches(spec, roster.users.values(), _student_ids, _student_names)
         if not hits:
             unmatched.append(spec)
             continue

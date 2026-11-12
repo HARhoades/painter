@@ -10,7 +10,7 @@ import sys
 
 from painter.domain.matching import _letters
 from painter.domain.naming import slug
-from painter.domain.roster import catch_all_sections
+from painter.domain.roster import best_matches, catch_all_sections
 
 
 def read_roster_csv(path: Path) -> list[dict]:
@@ -50,9 +50,12 @@ class RosterIndex:
         self.filtered_out: set[str] = set()
         if section_specs:
             keep = set()
+            if any(not (s or "").strip() for s in section_specs):
+                raise SystemExit("--section needs a value; an empty one would "
+                                 "match everything.")
             for spec in section_specs:
-                hits = {n for n, sid in self.sections.items()
-                        if spec == sid or spec.casefold() in n.casefold()}
+                hits = set(best_matches(spec, self.sections,
+                                        lambda n: (self.sections[n],), lambda n: (n,)))
                 if not hits:
                     raise SystemExit(f"--section {spec!r} matches no section in the roster")
                 keep |= hits
