@@ -139,3 +139,20 @@ def test_quiz_export_service(canvas, fake_canvas, tmp_path, capsys):
     with pytest.raises(InvalidInput, match="is not a quiz"):
         export_quiz(canvas, QuizExportRequest(100, (7001,), tmp_path / "x"))
     assert capsys.readouterr() == ("", "")
+
+
+def test_browser_uploads_dry_run_and_missing_playwright(canvas, fake_canvas, tmp_path, capsys):
+    from golden.scenarios import add_new_quiz
+    from painter.errors import MissingDependency
+    from painter.services.quiz_uploads import (
+        UPLOADS_DONE, BrowserUploadsRequest, browser_quiz_uploads,
+    )
+    add_new_quiz(fake_canvas)
+    rep = RecordingReporter()
+    res = browser_quiz_uploads(canvas, BrowserUploadsRequest(
+        100, (7003,), tmp_path, dry_run=True), rep)
+    assert res.outcome == UPLOADS_DONE
+    assert "3 submitted student(s) to visit." in rep.text("info")
+    with pytest.raises(MissingDependency):          # Playwright is not in the test env
+        browser_quiz_uploads(canvas, BrowserUploadsRequest(100, (7003,), tmp_path, limit=1))
+    assert capsys.readouterr() == ("", "")

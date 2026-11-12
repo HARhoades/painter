@@ -33,6 +33,10 @@ class MissingDependency(PainterError):
     """An optional package (openpyxl, playwright) is needed and not installed."""
 
 
+class BrowserUnavailable(PainterError):
+    """The browser could not be started, reached, or signed in to Canvas."""
+
+
 class Cancelled(PainterError):
     """The front end asked the service to stop (Reporter.cancelled())."""
 

@@ -1,5 +1,6 @@
 """Default locations (review finding 8)."""
 from pathlib import Path
+from types import SimpleNamespace
 
 from painter.config import default_browser_profile
 
@@ -23,8 +24,9 @@ def test_browser_profile_on_macos_and_linux():
 
 def test_cli_no_longer_defaults_to_the_working_folder(fake_canvas, run_cli, monkeypatch):
     seen = {}
-    monkeypatch.setattr("painter.cli.main.browser_quiz_uploads",
-                        lambda canvas, args: seen.setdefault("p", args.browser_profile) and 0)
+    monkeypatch.setattr("painter.cli.commands.browser_quiz_uploads",
+                        lambda canvas, req, rep: SimpleNamespace(
+                            outcome=0, _=seen.setdefault("p", str(req.profile))))
     run_cli("--base-url", "https://canvas.test", "--course", "100",
             "--assignment", "7001", "--browser-uploads")
     assert seen["p"] == str(default_browser_profile())

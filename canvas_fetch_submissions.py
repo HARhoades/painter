@@ -381,9 +381,11 @@ from painter.services.quiz_plan import (  # noqa: F401
 )
 from painter.services.quiz_uploads import (  # noqa: F401
     CANVAS_FILE_ID_RE, LAUNCH_SESSION_RE, QUIZ_RESULTS_RE, QUIZ_SESSION_RE,
-    TRUSTED_HOST_SUFFIXES, URL_RE, _is_file_link, browser_quiz_uploads,
-    download_report_uploads, submission_quiz_session, uploads_in_results,
+    TRUSTED_HOST_SUFFIXES, URL_RE, _is_file_link, BrowserUploadsRequest,
+    BrowserUploadsResult, download_report_uploads, submission_quiz_session,
+    uploads_in_results,
 )
+from painter.cli.commands import browser_uploads as browser_quiz_uploads  # noqa: F401
 from painter.services.quiz_export import (  # noqa: F401
     ANSWERS_STATE_KEY, EXPORT_FINAL_STATES, EXPORT_MAX_AGE_DAYS, EXPORT_STATE_FILE,
     ORPHAN_WINDOW_SECONDS, REPORT_REUSE_SECONDS, _export_expired,

@@ -20,6 +20,7 @@ from painter.services.grade_files import GradeFilesRequest, make_grade_files
 from painter.services.grading import plan_grades, post_grade_plans
 from painter.services.organize import OrganizeRequest, execute_organize, plan_organize
 from painter.services.quiz_export import QuizExportRequest, export_quiz as run_quiz_export
+from painter.services.quiz_uploads import BrowserUploadsRequest, browser_quiz_uploads
 from painter.services.roster_export import RosterExportRequest, export_roster_csv
 from painter.services.submissions import (
     DownloadRequest, download_submissions, section_listing, student_listing,
@@ -153,3 +154,15 @@ def export_quiz(canvas: Canvas, args) -> int:
         by_section=args.by_section, answers=not args.no_answers,
         uploads=args.quiz_uploads, course_export=not args.no_course_export,
         timeout=args.export_timeout, dry_run=args.dry_run), CONSOLE).outcome
+
+
+def browser_uploads(canvas: Canvas, args) -> int:
+    """--browser-uploads; exit code = BrowserUploadsResult.outcome (0, 1, 3)."""
+    return browser_quiz_uploads(canvas, BrowserUploadsRequest(
+        course_id=args.course, assignment_ids=tuple(args.assignment or ()),
+        out_root=Path(args.out), selection=selection_from(args),
+        by_section=args.by_section, limit=args.limit, dry_run=args.dry_run,
+        profile=Path(args.browser_profile), channel=args.browser_channel,
+        connect_url=args.connect_browser, signin_timeout=args.signin_timeout,
+        headless=args.headless, page_timeout=args.page_timeout,
+        delay=args.delay), CONSOLE).outcome

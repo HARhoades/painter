@@ -15,7 +15,6 @@ from painter.cli.console import ConsoleReporter
 from painter.errors import CanvasHTTPError, PainterError
 from painter.events import emit
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
-from painter.services.quiz_uploads import browser_quiz_uploads
 
 
 # Exit status when Canvas could not be used at all (bad token, no permission,
@@ -237,6 +236,6 @@ def _main() -> int:
         return commands.export_quiz(canvas, args)
 
     if args.browser_uploads:
-        return browser_quiz_uploads(canvas, args)
+        return commands.browser_uploads(canvas, args)
 
     return commands.download(canvas, args, run_started)

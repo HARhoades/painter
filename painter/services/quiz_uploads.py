@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-import sys
 import time
 
 import requests
 
 from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
-from painter.errors import NotFound
+from painter.config import default_browser_profile
+from painter.errors import (
+    BrowserUnavailable, Cancelled, InvalidInput, MissingDependency, NotFound,
+)
 from painter.events import NULL, Reporter
 from painter.domain.assignments import quiz_kind
 from painter.domain.matching import name_matches
@@ -209,34 +212,60 @@ def uploads_in_results(results) -> list[dict]:
     return out
 
 
-def _console():
-    """TEMPORARY (phase 3): printing reporter until step 10 converts this flow."""
-    from painter.cli.console import ConsoleReporter
-    return ConsoleReporter()
+# BrowserUploadsResult.outcome (the CLI's exit codes)
+UPLOADS_DONE, NO_STUDENTS, UPLOADS_WITH_PROBLEMS = 0, 1, 3
 
 
-def browser_quiz_uploads(canvas: Canvas, args) -> int:
-    """--browser-uploads: download a New Quiz's File Upload answers through
-    SpeedGrader in a Playwright-driven browser."""
-    if not args.assignment or len(args.assignment) != 1:
-        raise SystemExit("--browser-uploads needs exactly one --assignment "
-                         "(the quiz's assignment ID).")
-    cid, aid = args.course, args.assignment[0]
+@dataclass
+class BrowserUploadsRequest:
+    course_id: int
+    assignment_ids: tuple[int, ...]        # exactly one: the New Quiz
+    out_root: Path
+    selection: Selection = field(default_factory=Selection)
+    by_section: bool = False
+    limit: int | None = None               # first N students, for a trial run
+    dry_run: bool = False                  # list who would be visited; no browser
+    profile: Path = field(default_factory=default_browser_profile)
+    channel: str = "chrome"                # chrome, msedge, or chromium
+    connect_url: str | None = None         # attach to a browser you started
+    signin_timeout: float = 600
+    headless: bool = False
+    page_timeout: float = 45
+    delay: float = 1.0                     # pause between students, seconds
+
+
+@dataclass
+class BrowserUploadsResult:
+    outcome: int
+    saved: int = 0
+    no_files: int = 0
+    failed: int = 0
+    log: list[dict] = field(default_factory=list)
+    log_paths: list[Path] = field(default_factory=list)
+
+
+def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
+                         reporter: Reporter = NULL) -> BrowserUploadsResult:
+    """Download a New Quiz's File Upload answers through SpeedGrader in a
+    Playwright-driven browser. Sign-in happens in that browser window."""
+    if len(req.assignment_ids) != 1:
+        raise InvalidInput("--browser-uploads needs exactly one --assignment "
+                           "(the quiz's assignment ID).")
+    cid, aid = req.course_id, req.assignment_ids[0]
     try:
         assignment = canvas.assignment(cid, aid)
     except NotFound as exc:
-        raise SystemExit(f"Assignment {aid} not found in course {cid} ({exc}).")
+        raise InvalidInput(f"Assignment {aid} not found in course {cid} ({exc}).")
     if quiz_kind(assignment) != "new":
-        raise SystemExit(f"Assignment {aid} ({assignment.get('name')}) is not a "
-                         "New Quiz; use a normal download run instead.")
-    print(f"[{aid}] {assignment.get('name')}  (New Quiz)")
+        raise InvalidInput(f"Assignment {aid} ({assignment.get('name')}) is not a "
+                           "New Quiz; use a normal download run instead.")
+    reporter.info(f"[{aid}] {assignment.get('name')}  (New Quiz)")
 
-    plan = quiz_export_plan(canvas, cid, Path(args.out), assignment,
-                            Selection.of(args.section, args.student), args.by_section,
-                            _console())
+    plan = quiz_export_plan(canvas, cid, Path(req.out_root), assignment,
+                            req.selection, req.by_section, reporter)
     if plan is None:
-        print("None of the selected students are assigned this quiz.", file=sys.stderr)
-        return 1
+        reporter.warning("None of the selected students are assigned this quiz.")
+        return BrowserUploadsResult(NO_STUDENTS)
     roster = plan.roster or Roster(canvas.sections(cid), canvas.student_enrollments(cid))
     stem = slug(assignment.get("name") or str(aid), 50)
 
@@ -251,11 +280,11 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
             continue
         todo.append((uid, sub, submission_quiz_session(sub)))
     todo.sort(key=lambda t: (roster.users[t[0]].get("sortable_name") or "").casefold())
-    if args.limit:
-        todo = todo[:args.limit]
-    print(f"{len(todo)} submitted student(s) to visit.")
+    if req.limit:
+        todo = todo[:req.limit]
+    reporter.info(f"{len(todo)} submitted student(s) to visit.")
     if not todo:
-        return 1
+        return BrowserUploadsResult(NO_STUDENTS)
 
     def student_folder(uid: int) -> tuple[Path, Path, str]:
         u = roster.users.get(uid) or {}
@@ -263,46 +292,46 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
         base = (plan.dir_of or {}).get(uid, plan.dirs[0])
         return base, base / f"{stem}_uploads" / who, who
 
-    if args.dry_run:
+    if req.dry_run:
         for uid, _, sess in todo:
             _, folder, _ = student_folder(uid)
-            print(f"  {folder}   quiz session {sess or '? (matched by page load)'}")
-        print("Dry run: no browser opened, nothing downloaded.")
-        return 0
+            reporter.info(f"  {folder}   quiz session {sess or '? (matched by page load)'}")
+        reporter.info("Dry run: no browser opened, nothing downloaded.")
+        return BrowserUploadsResult(UPLOADS_DONE)
 
     try:
         from playwright.sync_api import sync_playwright, Error as PWError
     except ImportError:
-        raise SystemExit("Playwright is not installed: pip install playwright "
+        raise MissingDependency("Playwright is not installed: pip install playwright "
                          "(then 'playwright install chromium' if you use "
                          "--browser-channel chromium).")
 
     log: list[dict] = []
     saved = failed = no_files = 0
-    profile = Path(args.browser_profile).expanduser().resolve()
-    channel = None if args.browser_channel == "chromium" else args.browser_channel
+    profile = Path(req.profile).expanduser().resolve()
+    channel = None if req.channel == "chromium" else req.channel
 
     with sync_playwright() as pw:
-        attached = bool(args.connect_browser)
+        attached = bool(req.connect_url)
         if attached:
             # A browser the user started with --remote-debugging-port: sign-in
             # (SSO, CAC certificate prompt, 2FA) behaves exactly as normal,
             # because Playwright did not launch it.
-            print(f"Connecting to your browser at {args.connect_browser} ...")
+            reporter.info(f"Connecting to your browser at {req.connect_url} ...")
             try:
-                browser = pw.chromium.connect_over_cdp(args.connect_browser)
+                browser = pw.chromium.connect_over_cdp(req.connect_url)
             except PWError as exc:
-                raise SystemExit(
-                    f"Could not connect to {args.connect_browser}: {exc}\n"
+                raise BrowserUnavailable(
+                    f"Could not connect to {req.connect_url}: {exc}\n"
                     "Start the browser first, e.g. (Windows, Chrome):\n"
                     '  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
                     "--remote-debugging-port=9222 --user-data-dir=C:\\canvas-browser-profile\n"
                     "and keep it open.")
             ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         else:
-            print(f"Starting {args.browser_channel} with profile {profile} ...")
+            reporter.info(f"Starting {req.channel} with profile {profile} ...")
             ctx = pw.chromium.launch_persistent_context(
-                str(profile), channel=channel, headless=args.headless,
+                str(profile), channel=channel, headless=req.headless,
                 accept_downloads=True, viewport={"width": 1400, "height": 900})
         captured: dict[str, dict] = {}
 
@@ -341,19 +370,19 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
                     return pg
             return None
 
-        print("Opening Canvas ...")
+        reporter.info("Opening Canvas ...")
         try:
             # "commit" returns as soon as the server answers, so an SSO
             # redirect chain or certificate prompt can't block this call.
             page.goto(course_url, wait_until="commit", timeout=60_000)
         except PWError as exc:
-            print(f"  (first page load did not finish: {str(exc).splitlines()[0]})")
+            reporter.info(f"  (first page load did not finish: {str(exc).splitlines()[0]})")
         page.wait_for_timeout(2000)
         if signed_in_page() is None:
-            print("Sign in to Canvas in the browser window (SSO / CAC / 2FA as "
+            reporter.info("Sign in to Canvas in the browser window (SSO / CAC / 2FA as "
                   "usual). This continues by itself once Canvas has loaded; "
-                  f"waiting up to {args.signin_timeout:.0f}s.")
-            deadline = time.monotonic() + args.signin_timeout
+                  f"waiting up to {req.signin_timeout:.0f}s.")
+            deadline = time.monotonic() + req.signin_timeout
             last_note = time.monotonic()
             # Polling with wait_for_timeout keeps Playwright processing
             # events while you sign in (a blocking input() would not).
@@ -367,29 +396,32 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
                             urls.append(requests.utils.urlparse(pg.url).netloc or pg.url)
                         except PWError:
                             pass
-                    print(f"  still waiting; open tab(s): {', '.join(urls) or 'none'}")
+                    reporter.info(f"  still waiting; open tab(s): {', '.join(urls) or 'none'}")
             found = signed_in_page()
             if found is None:
-                raise SystemExit(
+                raise BrowserUnavailable(
                     "Not signed in to Canvas after "
-                    f"{args.signin_timeout:.0f}s. If the sign-in page never "
+                    f"{req.signin_timeout:.0f}s. If the sign-in page never "
                     "finished (common with CAC certificate prompts in a browser "
                     "Playwright starts), use --connect-browser instead; see "
                     "--help.")
             if found is not page:
                 page = found
-        print("Signed in.")
+        reporter.info("Signed in.")
 
         for n, (uid, sub, sess) in enumerate(todo, 1):
             base, folder, who = student_folder(uid)
-            print(f"  [{n}/{len(todo)}] {who}", end="", flush=True)
+            if reporter.cancelled():
+                break                 # still close the browser and write the log
+            reporter.progress(n - 1, len(todo), who)
+            reporter.info(f"  [{n}/{len(todo)}] {who}", end="")
             before = set(captured)
             url = (f"{canvas.base}/courses/{cid}/gradebook/speed_grader"
                    f"?assignment_id={aid}&student_id={uid}")
             got = None
             try:
                 page.goto(url, wait_until="domcontentloaded")
-                deadline = time.monotonic() + args.page_timeout
+                deadline = time.monotonic() + req.page_timeout
                 while time.monotonic() < deadline:
                     if sess and "results" in captured.get(sess, {}):
                         got = sess
@@ -402,10 +434,10 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
                             break
                     page.wait_for_timeout(250)
             except PWError as exc:
-                print(f"  ! page error: {exc}")
+                reporter.info(f"  ! page error: {exc}")
             if got is None:
                 failed += 1
-                print(f"  ! quiz results did not load within {args.page_timeout:.0f}s")
+                reporter.info(f"  ! quiz results did not load within {req.page_timeout:.0f}s")
                 log.append({"student_folder": who, "user_id": uid, "quiz_session": sess or "",
                             "question": "", "file": "", "size": "", "status":
                             "failed: quiz results did not load"})
@@ -413,7 +445,7 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
             name_seen = captured[got].get("name")
             if not sess and name_seen and not name_matches(name_seen, roster.users[uid]):
                 failed += 1
-                print(f"  ! loaded quiz belongs to {name_seen!r}; skipped")
+                reporter.info(f"  ! loaded quiz belongs to {name_seen!r}; skipped")
                 log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
                             "question": "", "file": "", "size": "",
                             "status": f"failed: page showed {name_seen}"})
@@ -422,11 +454,11 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
             files = uploads_in_results(captured[got]["results"])
             if not files:
                 no_files += 1
-                print("  (no uploaded files)")
+                reporter.info("  (no uploaded files)")
                 log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
                             "question": "", "file": "", "size": "", "status": "no files"})
                 continue
-            print(f"  {len(files)} file(s)")
+            reporter.info(f"  {len(files)} file(s)")
             for f in files:
                 fname = f"Q{f['position']}__{safe_filename(f['name'])}"
                 target = folder / fname
@@ -462,16 +494,17 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
                     failed += 1
                 else:
                     saved += 1
-                print(f"      {status:<11} {target.relative_to(base)}")
+                reporter.info(f"      {status:<11} {target.relative_to(base)}")
                 log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
                             "question": f["position"], "file": f["name"],
                             "size": f["size"] or "", "status": status})
-            page.wait_for_timeout(args.delay * 1000)
+            page.wait_for_timeout(req.delay * 1000)
         if attached:
             page.close()          # leave the user's browser and tabs open
         else:
             ctx.close()
 
+    log_paths: list[Path] = []
     for d in plan.dirs:
         rows = [x for x in log if (plan.dir_of or {}).get(x["user_id"], plan.dirs[0]) == d]
         if rows:
@@ -481,7 +514,11 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
                 w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
                 w.writeheader()
                 w.writerows(rows)
-            print(f"Log: {p}")
-    print(f"\n{saved} file(s) saved, {no_files} student(s) with no upload, "
+            log_paths.append(p)
+            reporter.info(f"Log: {p}")
+    reporter.info(f"\n{saved} file(s) saved, {no_files} student(s) with no upload, "
           f"{failed} problem(s).")
-    return 0 if not failed else 3
+    if reporter.cancelled():
+        raise Cancelled(f"stopped; {saved} file(s) saved so far, log written")
+    return BrowserUploadsResult(UPLOADS_WITH_PROBLEMS if failed else UPLOADS_DONE,
+                                saved, no_files, failed, log, log_paths)
