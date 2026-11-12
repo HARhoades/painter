@@ -19,7 +19,7 @@ from painter.errors import (
 from painter.events import NULL, Reporter
 from painter.domain.assignments import quiz_kind
 from painter.domain.matching import name_matches
-from painter.domain.naming import safe_filename, slug
+from painter.domain.naming import safe_filename, slug, student_folder_name
 from painter.domain.roster import Roster
 from painter.services.quiz_plan import (
     QuizExportPlan, find_student_column, quiz_export_plan,
@@ -110,8 +110,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
             continue
         seen.add(key)
         if uid is not None:
-            u = roster.users.get(uid) or {}
-            who = f"{slug(u.get('sortable_name') or u.get('name') or 'student', 45)}_{uid}"
+            who = student_folder_name(uid, roster.users.get(uid))
             base = (plan.dir_of or {}).get(uid, plan.dirs[0])
         else:
             who, base = "unmatched", plan.dirs[0]
@@ -281,8 +280,7 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
         return BrowserUploadsResult(NO_STUDENTS)
 
     def student_folder(uid: int) -> tuple[Path, Path, str]:
-        u = roster.users.get(uid) or {}
-        who = f"{slug(u.get('sortable_name') or u.get('name') or 'student', 45)}_{uid}"
+        who = student_folder_name(uid, roster.users.get(uid))
         base = (plan.dir_of or {}).get(uid, plan.dirs[0])
         return base, base / f"{stem}_uploads" / who, who
 

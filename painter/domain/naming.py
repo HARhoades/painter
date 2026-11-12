@@ -46,10 +46,17 @@ def attachment_filenames(attachments: list[dict]) -> list[str]:
     return out
 
 
-def student_dir_name(sub: dict) -> str:
-    user = sub.get("user") or {}
+def student_folder_name(user_id, user: dict | None) -> str:
+    """<Last-First>_<Canvas user id>: the folder (and flat-file prefix) for a
+    student everywhere Painter writes one. The id keeps namesakes apart."""
+    user = user or {}
     name = user.get("sortable_name") or user.get("name") or "Anonymous"
-    return f"{slug(name, 45)}_{sub.get('user_id', 'unknown')}"
+    return f"{slug(name, 45)}_{user_id if user_id is not None else 'unknown'}"
+
+
+def student_dir_name(sub: dict) -> str:
+    """student_folder_name() for a submission, which carries its user."""
+    return student_folder_name(sub.get("user_id"), sub.get("user"))
 
 
 def flat_filename(sub: dict, fname: str) -> str:

@@ -77,3 +77,13 @@ def test_write_csv_dicts_and_lists_with_bom(tmp_path):
     q = write_csv(tmp_path / "b.csv", ["x", "y"], [["1", "2"]])
     assert read_table(q) == [["x", "y"], ["1", "2"]]
     assert read_table(write_csv(tmp_path / "c.csv", ["only"], [])) == [["only"]]
+
+
+def test_a4_student_folder_name_has_one_definition():
+    """The 45-character name slug is built only by student_folder_name."""
+    assert where([", 45)"], strings=True) == {"domain/naming.py"}   # inside f-strings
+    from painter.domain.naming import student_dir_name, student_folder_name
+    u = {"sortable_name": "Doe, Jane"}
+    assert student_folder_name(501, u) == "Doe-Jane_501"
+    assert student_dir_name({"user_id": 501, "user": u}) == "Doe-Jane_501"
+    assert student_folder_name(7, None) == "Anonymous_7"
