@@ -73,8 +73,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
     header, body = table[0], table[1:]
     canvas_host = (requests.utils.urlparse(canvas.base).hostname or "").lower()
 
-    roster = plan.roster or Roster(canvas.sections(course_id),
-                                   canvas.student_enrollments(course_id))
+    roster = plan.roster or Roster.load(canvas, course_id)
     found = find_student_column(header, body, roster)
     col_student, _, uid_of = found if found else (None, None, {})
 
@@ -266,7 +265,7 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
     if plan is None:
         reporter.warning("None of the selected students are assigned this quiz.")
         return BrowserUploadsResult(NO_STUDENTS)
-    roster = plan.roster or Roster(canvas.sections(cid), canvas.student_enrollments(cid))
+    roster = plan.roster or Roster.load(canvas, cid)
     stem = slug(assignment.get("name") or str(aid), 50)
 
     todo = []

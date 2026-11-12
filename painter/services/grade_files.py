@@ -93,8 +93,7 @@ class GradeFilesResult:
 def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
                      reporter: Reporter = NULL) -> GradeFilesResult:
     """Write one blank grade file per section."""
-    roster = Roster(canvas.sections(req.course_id),
-                    canvas.student_enrollments(req.course_id))
+    roster = Roster.load(canvas, req.course_id)
 
     if req.section_specs:
         section_ids, notes = resolve_sections(roster, list(req.section_specs))

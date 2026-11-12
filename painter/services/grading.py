@@ -176,8 +176,7 @@ def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
             return None, errors
 
     if course_id not in rosters:
-        rosters[course_id] = Roster(canvas.sections(course_id),
-                                    canvas.student_enrollments(course_id))
+        rosters[course_id] = Roster.load(canvas, course_id)     # once per course
     roster = rosters[course_id]
     notes: list[str] = []
 

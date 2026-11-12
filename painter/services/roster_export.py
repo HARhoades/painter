@@ -43,8 +43,7 @@ class RosterExportResult:
 def export_roster_csv(canvas: Canvas, req: RosterExportRequest,
                       reporter: Reporter = NULL) -> RosterExportResult:
     """One line per student (per section), sorted by last name."""
-    roster = Roster(canvas.sections(req.course_id),
-                    canvas.student_enrollments(req.course_id))
+    roster = Roster.load(canvas, req.course_id)
     chosen = req.selection.resolve(roster)
     emit(chosen.notes, reporter)
     student_ids, section_ids = chosen.student_ids, chosen.section_ids
