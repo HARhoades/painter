@@ -99,6 +99,7 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
 
     out_root = Path(args.out)
     rows = []
+    failures = 0
     new_quizzes_without_files: list[dict] = []
 
     for idx, assign in enumerate(assignments, start=1):
@@ -149,19 +150,26 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                 if args.flat:
                     fname = flat_filename(sub, fname)
                 target = sdir / fname
+                extracted_to = ""
+                # Every attachment gets a row, including failures, so the
+                # manifest and Excel log never make a partial run look
+                # complete (review finding 4).
                 try:
                     fresh = download(canvas, att["url"], target, att.get("size"))
                 except Exception as exc:
+                    failures += 1
+                    status_text = f"failed: {exc}"
                     print(f"    ! failed {fname}: {exc}")
-                    continue
-                print(f"    {'downloaded' if fresh else 'cached'} {fname}")
-
-                extracted_to = ""
-                if not args.no_extract and target.suffix.lower() in ARCHIVE_SUFFIXES:
-                    unpack_dir = sdir / target.stem
-                    if extract(target, unpack_dir):
-                        extracted_to = str(unpack_dir)
-                        print(f"      extracted -> {unpack_dir.name}/")
+                else:
+                    status_text = "downloaded" if fresh else "cached"
+                    print(f"    {status_text} {fname}")
+                    if not args.no_extract and target.suffix.lower() in ARCHIVE_SUFFIXES:
+                        unpack_dir = sdir / target.stem
+                        if extract(target, unpack_dir):
+                            extracted_to = str(unpack_dir)
+                            print(f"      extracted -> {unpack_dir.name}/")
+                        else:
+                            status_text += "; extract failed"
 
                 rows.append({
                     "assignment": assign["name"],
@@ -183,6 +191,7 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                     "score": sub.get("score") if sub.get("score") is not None else "",
                     "workflow_state": sub.get("workflow_state", ""),
                     "filename": fname,
+                    "status": status_text,
                     "path": str(target),
                     "extracted_to": extracted_to,
                 })
@@ -211,6 +220,9 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
             writer.writeheader()
             writer.writerows(rows)
         print(f"\n{len(rows)} file(s). Manifest: {manifest}")
+        if failures:
+            print(f"{failures} file(s) could not be downloaded; they are listed "
+                  "in the manifest with status 'failed'.", file=sys.stderr)
     else:
         print("\nNo submission files found."
               + (" (New Quizzes skipped for the reason above.)"
@@ -229,4 +241,5 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                   "(pip install openpyxl, or pass --no-xlsx).", file=sys.stderr)
         except Exception as exc:
             print(f"Excel log failed: {exc}", file=sys.stderr)
-    return 0
+    # 1 = finished, but some files are missing (same meaning as --post-grades).
+    return 1 if failures else 0

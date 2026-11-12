@@ -89,6 +89,25 @@ def test_download_by_section_flat_filtered(fake_canvas, run_cli, tmp_path):
     assert row["due_at"] == "2026-09-02 23:59"       # converted from UTC
 
 
+def test_download_failure_is_recorded_and_exit_code_is_1(fake_canvas, run_cli, tmp_path):
+    """Review finding 4: a failed file is in the manifest and the log, and the
+    run does not report success."""
+    openpyxl = pytest.importorskip("openpyxl")
+    del fake_canvas.file_bodies["/f/1"]            # essay.pdf now answers 404
+    out_dir = tmp_path / "o"
+    code, out, err = run_cli(*COMMON, "--out", str(out_dir), "--assignment", "7001")
+    assert code == 1
+    assert "1 file(s) could not be downloaded" in err
+    rows = read_csv(out_dir / "manifest.csv")
+    status = {r["filename"]: r["status"] for r in rows}
+    assert status["essay.pdf"].startswith("failed:")
+    assert status["analysis.zip"] == "downloaded"
+    assert not any(p.name == "essay.pdf" for p in out_dir.rglob("*"))
+    xlsx = next(out_dir.glob("submission_log_*.xlsx"))
+    files = openpyxl.load_workbook(xlsx)["Files"]
+    assert files.max_row == 3
+
+
 def test_download_with_nothing_submitted(fake_canvas, run_cli, tmp_path):
     code, out, _ = run_cli(*COMMON, "--out", str(tmp_path / "o"), "--assignment", "7002",
                            "--no-xlsx")

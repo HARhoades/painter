@@ -20,6 +20,7 @@ LOG_COLUMNS = [
     ("Late policy", "late_policy_status"), ("Missing", "missing_yn"),
     ("Graded", "graded_at"), ("Score", "score"),
     ("State", "workflow_state"), ("File", "filename"),
+    ("Status", "status"),
     ("Extracted", "extracted_yn"), ("Saved to", "path"),
 ]
 
@@ -43,6 +44,9 @@ COL_ASSIGN_ID, COL_USER_ID, COL_SECTION = (column_of("assignment_id"),
 
 
 COL_LATE, COL_FILE = column_of("late_yn"), column_of("filename")
+
+
+COL_STATUS = column_of("status")
 
 
 # helper flags appended after LOG_COLUMNS
@@ -154,7 +158,8 @@ def write_run_log(rows: list[dict], path: Path, run_started: datetime,
                 line.append(f"=SUMIFS(Files!${COL_NEW_STU}:${COL_NEW_STU},"
                             f"Files!${match_col}:${match_col},$A{i})")
             line += [
-                f"=COUNTIFS(Files!${match_col}:${match_col},$A{i})",
+                f'=COUNTIFS(Files!${match_col}:${match_col},$A{i},'
+                f'Files!${COL_STATUS}:${COL_STATUS},"<>failed*")',
                 f"=SUMIFS(Files!${COL_NEW_SUB}:${COL_NEW_SUB},"
                 f"Files!${match_col}:${match_col},$A{i})",
                 f'=COUNTIFS(Files!${match_col}:${match_col},$A{i},'
@@ -222,7 +227,11 @@ def write_run_log(rows: list[dict], path: Path, run_started: datetime,
         ("Filters", "; ".join(filters) or "none (all students)"),
         ("Times shown in", args.tz or "UTC, as returned by Canvas"),
         ("Output folder", str(Path(args.out).resolve())),
-        ("Files downloaded", f"=COUNTA(Files!${COL_FILE}$2:${COL_FILE}${last_row})"),
+        ("Files downloaded",
+         f"=COUNTA(Files!${COL_FILE}$2:${COL_FILE}${last_row})"
+         f'-COUNTIF(Files!${COL_STATUS}$2:${COL_STATUS}${last_row},"failed*")'),
+        ("Files failed",
+         f'=COUNTIF(Files!${COL_STATUS}$2:${COL_STATUS}${last_row},"failed*")'),
         ("Submissions", f"=SUM(Files!${COL_NEW_SUB}$2:${COL_NEW_SUB}${last_row})"),
         ("Students", f"=SUM(Files!${COL_NEW_STU}$2:${COL_NEW_STU}${last_row})"),
         ("Late files",
