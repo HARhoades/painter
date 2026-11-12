@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 
-from painter.canvas.client import Canvas
+from painter.canvas.client import Canvas, check_base_url
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
 from painter.services.grade_files import make_grade_files
 from painter.services.grading import post_grades
@@ -186,6 +186,10 @@ def main() -> int:
         p.error("--roster and --organize-to are only used with --organize")
     if not args.base_url:
         p.error("--base-url is required")
+    try:
+        args.base_url = check_base_url(args.base_url)
+    except ValueError as exc:
+        p.error(str(exc))
     if args.course is None and not args.post_grades:
         p.error("--course is required (it is optional only with --post-grades)")
     run_started = datetime.now()   # names the log file; local clock, not UTC

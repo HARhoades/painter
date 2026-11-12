@@ -289,6 +289,8 @@ def test_export_quiz_content_and_answers_by_section(fake_canvas, run_cli, tmp_pa
      "cannot be combined"),
     (["--organize", "x"], "--organize needs --roster FILE"),
     (["--base-url", BASE, "--course", "100", "--quiz-uploads"], "--quiz-uploads needs --export-quiz"),
+    (["--base-url", "http://canvas.test", "--course", "100"], "must be an https:// address"),
+    (["--base-url", "canvas.test", "--course", "100"], "must be an https:// address"),
 ])
 def test_argument_errors(fake_canvas, run_cli, argv, message):
     code, _, err = run_cli(*argv)

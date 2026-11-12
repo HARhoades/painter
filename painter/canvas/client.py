@@ -71,9 +71,19 @@ def backoff_delay(attempt: int, retry_after: float | None = None) -> float:
 # --------------------------------------------------------------------------
 # Canvas API client
 # --------------------------------------------------------------------------
+def check_base_url(base_url: str) -> str:
+    """The Canvas address, normalised; https only, since every request
+    carries the API token (review finding 16)."""
+    parsed = requests.utils.urlparse((base_url or "").strip())
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValueError(f"--base-url must be an https:// address, e.g. "
+                         f"https://yourschool.instructure.com (got {base_url!r})")
+    return base_url.strip().rstrip("/")
+
+
 class Canvas:
     def __init__(self, base_url: str, token: str, per_page: int = 100):
-        self.base = base_url.rstrip("/")
+        self.base = check_base_url(base_url)
         self.per_page = per_page
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {token}"

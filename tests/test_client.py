@@ -148,3 +148,12 @@ def test_wait_for_progress_polls_the_progress_url():
     out = c.wait_for_progress({"id": 9, "workflow_state": "queued", "url": "p"})
     assert out["workflow_state"] == "completed"
     assert c.session.requests[0][1] == "p"
+
+
+def test_client_refuses_plain_http():
+    """Review finding 16: the token is never sent over http."""
+    import pytest
+    from painter.canvas.client import Canvas
+    with pytest.raises(ValueError, match="https"):
+        Canvas("http://canvas.test", "t")
+    assert Canvas("https://canvas.test/", "t").base == "https://canvas.test"
