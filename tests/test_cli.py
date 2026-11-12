@@ -301,3 +301,35 @@ def test_missing_token(fake_canvas, run_cli, monkeypatch):
     monkeypatch.delenv("CANVAS_API_TOKEN")
     code, _, err = run_cli(*COMMON, "--list-assignments")
     assert code == 1 and "Set the CANVAS_API_TOKEN environment variable first." in err
+
+
+# ---- Canvas errors (review finding 9) ------------------------------------------
+def _status(fake, method, path, code):
+    from conftest import make_response
+    fake.extra[(method, path)] = make_response(f"{BASE}{path}", code, {"errors": "x"})
+
+
+def test_bad_token_is_one_line_not_a_traceback(fake_canvas, run_cli):
+    _status(fake_canvas, "GET", "/api/v1/courses/100/assignments", 401)
+    code, _, err = run_cli(*COMMON, "--list-assignments")
+    assert code == 4
+    assert "rejected the API token (401)" in err and "Traceback" not in err
+
+
+def test_401_on_assignment_lookup_is_not_reported_as_not_found(fake_canvas, run_cli, tmp_path):
+    _status(fake_canvas, "GET", "/api/v1/courses/100/assignments/7001", 401)
+    code, _, err = run_cli(*COMMON, "--make-grade-files", "--assignment", "7001",
+                           "--grade-file-dir", str(tmp_path))
+    assert code == 4 and "not found" not in err and "401" in err
+
+
+def test_404_on_assignment_lookup_still_says_not_found(fake_canvas, run_cli, tmp_path):
+    code, _, err = run_cli(*COMMON, "--make-grade-files", "--assignment", "9999",
+                           "--grade-file-dir", str(tmp_path))
+    assert "Assignment 9999 not found" in str(code)     # SystemExit(message)
+
+
+def test_typed_errors_are_still_requests_http_errors():
+    import requests
+    from painter.errors import AuthFailed, NotFound, PainterError
+    assert issubclass(NotFound, requests.HTTPError) and issubclass(AuthFailed, PainterError)

@@ -11,6 +11,7 @@ import time
 import requests
 
 from painter.canvas.client import Canvas
+from painter.errors import NotFound
 from painter.domain.assignments import quiz_kind
 from painter.domain.matching import name_matches
 from painter.domain.naming import safe_filename, slug
@@ -210,7 +211,7 @@ def browser_quiz_uploads(canvas: Canvas, args) -> int:
     cid, aid = args.course, args.assignment[0]
     try:
         assignment = canvas.assignment(cid, aid)
-    except requests.HTTPError as exc:
+    except NotFound as exc:
         raise SystemExit(f"Assignment {aid} not found in course {cid} ({exc}).")
     if quiz_kind(assignment) != "new":
         raise SystemExit(f"Assignment {aid} ({assignment.get('name')}) is not a "

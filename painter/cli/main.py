@@ -7,7 +7,10 @@ import os
 from pathlib import Path
 import sys
 
+import requests
+
 from painter.canvas.client import Canvas, check_base_url
+from painter.errors import CanvasHTTPError
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
 from painter.services.grade_files import make_grade_files
 from painter.services.grading import post_grades
@@ -18,7 +21,25 @@ from painter.services.roster_export import export_roster_csv
 from painter.services.submissions import run_download
 
 
+# Exit status when Canvas could not be used at all (bad token, no permission,
+# missing item, Canvas down). 1-3 are already taken by individual modes.
+EXIT_CANVAS_ERROR = 4
+
+
 def main() -> int:
+    """Run the command line; Canvas errors become one line and exit code 4."""
+    try:
+        return _main()
+    except CanvasHTTPError as exc:
+        print(f"Error: {exc.hint or 'Canvas returned an error.'}\n  ({exc})",
+              file=sys.stderr)
+        return EXIT_CANVAS_ERROR
+    except requests.ConnectionError as exc:
+        print(f"Error: could not reach Canvas ({exc}).", file=sys.stderr)
+        return EXIT_CANVAS_ERROR
+
+
+def _main() -> int:
     p = argparse.ArgumentParser(
         description="Bulk-download Canvas submissions, or bulk-post grades and comments.")
     p.add_argument("--base-url",

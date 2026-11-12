@@ -13,6 +13,7 @@ import zipfile
 import requests
 
 from painter.canvas.client import Canvas
+from painter.errors import NotFound
 from painter.canvas.jobs import (
     POLL_CAP, POLL_FACTOR, POLL_START, _load_state, _save_state, poll_until,
 )
@@ -132,7 +133,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
             and saved.get("assignment_id") == assignment_id:
         try:
             progress = canvas.progress(saved["progress_id"])
-        except requests.HTTPError:
+        except NotFound:          # job expired; a bad token is not this
             progress = None
         if progress:
             st = progress.get("workflow_state")
@@ -254,7 +255,7 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
     if saved and saved.get("course_id") == course_id:
         try:
             export = canvas.content_export(course_id, saved["export_id"])
-        except requests.HTTPError:
+        except NotFound:
             export = None
         if export and (export.get("workflow_state") == "failed" or _export_expired(export)):
             export = None
@@ -354,7 +355,7 @@ def export_quiz(canvas: Canvas, args) -> int:
     cid, aid = args.course, args.assignment[0]
     try:
         assignment = canvas.assignment(cid, aid)
-    except requests.HTTPError as exc:
+    except NotFound as exc:
         raise SystemExit(f"Assignment {aid} not found in course {cid} ({exc}).")
     kind = quiz_kind(assignment)
     if kind is None:

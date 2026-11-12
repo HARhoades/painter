@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import sys
 
-import requests
-
 from painter.canvas.client import Canvas
+from painter.errors import NotFound
 
 
 # --------------------------------------------------------------------------
@@ -187,7 +186,7 @@ def assigned_students(canvas: Canvas, course_id: int,
                     f"/courses/{course_id}/assignments/{aid}/submissions"):
                 if sub.get("user_id") is not None:
                     users.add(sub["user_id"])
-        except requests.HTTPError as exc:
+        except NotFound as exc:
             raise SystemExit(f"Assignment {aid} not found in course {course_id} "
                              f"({exc}).\nRun with --list-assignments to see valid IDs.")
     return users

@@ -11,6 +11,7 @@ import sys
 import requests
 
 from painter.canvas.client import Canvas
+from painter.errors import NotFound
 from painter.domain.matching import name_matches
 from painter.domain.roster import Roster
 from painter.services.grade_files import (
@@ -157,8 +158,8 @@ def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
             return None, errors
         try:
             course_id = canvas.section(gf.section_id)["course_id"]
-        except requests.HTTPError as exc:
-            err(f"could not look up section {gf.section_id}: {exc}")
+        except NotFound as exc:
+            err(f"section {gf.section_id} not found ({exc})")
             return None, errors
 
     if course_id not in rosters:
@@ -179,7 +180,7 @@ def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
 
     try:
         assignment = canvas.assignment(course_id, gf.assignment_id)
-    except requests.HTTPError as exc:
+    except NotFound as exc:
         err(f"assignment {gf.assignment_id} not found in course {course_id} ({exc})")
         return None, errors
 

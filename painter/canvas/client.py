@@ -9,6 +9,7 @@ import time
 import requests
 
 from painter.canvas.jobs import poll_until
+from painter.errors import InvalidInput, error_for_status
 
 
 # --------------------------------------------------------------------------
@@ -76,7 +77,7 @@ def check_base_url(base_url: str) -> str:
     carries the API token (review finding 16)."""
     parsed = requests.utils.urlparse((base_url or "").strip())
     if parsed.scheme.lower() != "https" or not parsed.hostname:
-        raise ValueError(f"--base-url must be an https:// address, e.g. "
+        raise InvalidInput(f"--base-url must be an https:// address, e.g. "
                          f"https://yourschool.instructure.com (got {base_url!r})")
     return base_url.strip().rstrip("/")
 
@@ -157,10 +158,14 @@ class Canvas:
                 resp.close()
                 self.sleep(backoff_delay(attempt))
                 continue
-            resp.raise_for_status()
+            err = error_for_status(resp)
+            if err is not None:
+                raise err
             self._pace(remaining)
             return resp
-        last.raise_for_status()
+        err = error_for_status(last)
+        if err is not None:
+            raise err
         return last
 
     def get_json(self, url: str, params: dict | None = None):

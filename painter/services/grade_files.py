@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
-import requests
-
 from painter.canvas.client import Canvas
+from painter.errors import NotFound
 from painter.domain.naming import slug
 from painter.domain.roster import Roster, instructor_label, resolve_sections
 
@@ -87,7 +86,7 @@ def make_grade_files(canvas: Canvas, args) -> int:
             raise SystemExit("--make-grade-files takes at most one --assignment.")
         try:
             assignment = canvas.assignment(args.course, args.assignment[0])
-        except requests.HTTPError as exc:
+        except NotFound as exc:
             raise SystemExit(f"Assignment {args.assignment[0]} not found in course "
                              f"{args.course} ({exc}).")
         label = label or (assignment.get("name") or "").split()[0]
