@@ -10,6 +10,7 @@ import sys
 
 from painter.domain.matching import _letters
 from painter.domain.naming import slug
+from painter.domain.roster import catch_all_sections
 
 
 def read_roster_csv(path: Path) -> list[dict]:
@@ -62,14 +63,8 @@ class RosterIndex:
             self.filtered_out = set(self.students) - set(by_student)
             self.students = {u: r for u, r in self.students.items() if u in by_student}
 
-        # A section every student belongs to (a course-wide default section)
-        # says nothing about where a student belongs, so it loses ties.
-        # It is "course-wide" only if it holds every student and every
-        # student also has a real section of their own.
-        everyone = {sec for sec in self.sections
-                    if by_student
-                    and all(sec in secs and len(secs) > 1
-                            for secs in by_student.values())}
+        # A course-wide default section loses ties (same rule as downloads).
+        everyone = catch_all_sections(by_student)
         self.catch_all = everyone
         self.section_of: dict[str, str] = {}
         self.ambiguous_section: dict[str, list[str]] = {}

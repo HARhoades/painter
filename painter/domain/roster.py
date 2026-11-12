@@ -10,6 +10,21 @@ from painter.errors import NotFound
 # --------------------------------------------------------------------------
 # Main workflow
 # --------------------------------------------------------------------------
+def catch_all_sections(sections_by_student: dict) -> set:
+    """Sections that say nothing about where a student belongs.
+
+    A course-wide default section holds every student; it counts as a catch-all
+    only if every student also has another, real section. The one rule used by
+    download --by-section, quiz uploads --by-section and --organize
+    (review finding 5).
+    """
+    groups = [secs for secs in sections_by_student.values() if secs]
+    if not groups:
+        return set()
+    return {sec for sec in {s for g in groups for s in g}
+            if all(sec in g and len(g) > 1 for g in groups)}
+
+
 class Roster:
     """Course membership, joined across the sections and enrollments endpoints.
 
@@ -46,6 +61,8 @@ class Roster:
                 self.sections_of_user[uid].append(sid)
             self.users_of_section.setdefault(sid, set()).add(uid)
 
+        self.catch_all: set[int] = catch_all_sections(self.sections_of_user)
+
     def section_names(self, user_id: int) -> list[str]:
         return [self.section_by_id.get(s, {}).get("name", str(s))
                 for s in self.sections_of_user.get(user_id, [])]
@@ -54,16 +71,19 @@ class Roster:
         """The section to file a student under when writing per-section folders.
 
         If a student is in several sections, prefer one the user actually
-        selected; otherwise fall back to their first enrollment.
+        selected; otherwise their first enrollment. Either way a course-wide
+        catch-all section loses to a real one, as in --organize.
         """
         ids = self.sections_of_user.get(user_id, [])
         if not ids:
             return None
+        ranked = ([s for s in ids if s not in self.catch_all]
+                  + [s for s in ids if s in self.catch_all])
         if preferred:
-            for sid in ids:
+            for sid in ranked:
                 if sid in preferred:
                     return self.section_by_id.get(sid)
-        return self.section_by_id.get(ids[0])
+        return self.section_by_id.get(ranked[0])
 
 
 def match_section(spec: str, section: dict) -> bool:

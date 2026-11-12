@@ -88,3 +88,19 @@ def test_collect_attachments_deduplicates_and_reads_history():
            "submission_history": [{"attachments": [{"id": 2}, {"id": 3}]}]}
     assert [a["id"] for a in collect_attachments(sub, False)] == [1, 2]
     assert [a["id"] for a in collect_attachments(sub, True)] == [1, 2, 3]
+
+
+def test_primary_section_skips_a_course_wide_default_section():
+    """Review finding 5: download --by-section files students like --organize."""
+    from painter.domain.roster import catch_all_sections
+    sections = SECTIONS + [{"id": 10, "name": "AI105 (all)"}]
+    r = Roster(sections, [
+        enrollment(501, 10, "Doe, Jane"), enrollment(501, 11, "Doe, Jane"),
+        enrollment(502, 10, "Roe, Rick"), enrollment(502, 12, "Roe, Rick"),
+    ])
+    assert r.catch_all == {10}
+    assert r.primary_section(501, None)["id"] == 11
+    assert r.primary_section(502, set())["id"] == 12
+    assert r.primary_section(502, {10})["id"] == 10      # explicitly selected
+    # a section that everyone is in, with nothing else, is a real section
+    assert catch_all_sections({1: [10], 2: [10]}) == set()
