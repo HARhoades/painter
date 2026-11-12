@@ -78,6 +78,12 @@ def test_render_then_parse_round_trip(tmp_path):
     assert gf.entries == [] and gf.blank_entries == 1
 
 
+def test_render_without_assignment_leaves_title_blank():
+    """Review finding 14."""
+    text = render_grade_file(None, "DATE", {"id": 11, "name": "A1-8"}, "Rhoades", [])
+    assert text.splitlines()[:3] == ["[ASSIGNMENT]", "title=", "id="]
+
+
 def test_parse_grade_file(tmp_path):
     gf = parse_grade_file(write(tmp_path, GRADE_FILE))
     assert gf.assignment_title == "DATE Scenario" and gf.section_title == "A1-8"

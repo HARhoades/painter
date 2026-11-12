@@ -47,7 +47,9 @@ def render_grade_file(assignment: dict | None, label: str, section: dict,
                       instructor: str, students: list[dict]) -> str:
     """The grade file itself: an [ASSIGNMENT] and [SECTION] header, then one
     [STUDENT] block per student with name and Canvas id filled in."""
-    title = (assignment or {}).get("name", "") if assignment else label
+    # Without an assignment, title= is left blank to fill in, as documented;
+    # the label only names the file (review finding 14).
+    title = assignment.get("name", "") if assignment else ""
     out = ["[ASSIGNMENT]",
            f"title={title}",
            f"id={(assignment or {}).get('id', '')}",
