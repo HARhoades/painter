@@ -337,7 +337,7 @@ from painter.storage.files import (  # noqa: F401
     ARCHIVE_SUFFIXES, download, extract,
 )
 from painter.storage.runlog_xlsx import (  # noqa: F401
-    COL_ASSIGN_ID, COL_LATE, COL_NEW_SUB, FONT, HEAD_FILL, LOG_COLUMNS, _yn,
+    COL_ASSIGN_ID, COL_LATE, COL_NEW_SUB, FONT, HEAD_FILL, LOG_COLUMNS, RunInfo, _yn,
     log_filename, write_run_log,
 )
 from painter.qti.builder import (  # noqa: F401
@@ -348,8 +348,10 @@ from painter.qti.verify import (  # noqa: F401
     verify_qti_zip,
 )
 from painter.services.submissions import (  # noqa: F401
-    collect_attachments, run_download,
+    DownloadRequest, DownloadResult, StudentListing, collect_attachments,
+    download_submissions, section_listing, student_listing, write_manifest,
 )
+from painter.cli.commands import download as run_download  # noqa: F401
 from painter.services.grade_files import (  # noqa: F401
     GRADE_FILE_KEYS, GradeEntry, GradeFile, GradeFileError, TERM_PATTERNS,
     GradeFilesRequest, GradeFilesResult, grade_file_name, parse_grade_file,

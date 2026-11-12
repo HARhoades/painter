@@ -62,6 +62,11 @@ class Roster:
 
         self.catch_all: set[int] = catch_all_sections(self.sections_of_user)
 
+    @classmethod
+    def load(cls, canvas: Canvas, course_id: int) -> "Roster":
+        """Sections and student enrollments of a course: two paginated calls."""
+        return cls(canvas.sections(course_id), canvas.student_enrollments(course_id))
+
     def section_names(self, user_id: int) -> list[str]:
         return [self.section_by_id.get(s, {}).get("name", str(s))
                 for s in self.sections_of_user.get(user_id, [])]

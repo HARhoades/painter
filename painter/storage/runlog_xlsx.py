@@ -1,6 +1,7 @@
 """The Excel log written by a download run."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -68,8 +69,20 @@ def log_filename(run_started: datetime) -> str:
     return run_started.strftime("submission_log_%Y%m%d_%H%M%S.xlsx")
 
 
-def write_run_log(rows: list[dict], path: Path, run_started: datetime,
-                  args) -> None:
+@dataclass
+class RunInfo:
+    """What the Run Summary sheet records about a download run."""
+    run_started: datetime
+    course_id: int
+    base_url: str
+    out_root: Path
+    assignment_ids: tuple = ()
+    section_specs: tuple = ()
+    student_specs: tuple = ()
+    tz_name: str | None = None
+
+
+def write_run_log(rows: list[dict], path: Path, run: RunInfo) -> None:
     """Write the per-run Excel log: every file, plus student and section rollups.
 
     Counts are Excel formulas rather than Python-computed constants, so the
@@ -212,21 +225,21 @@ def write_run_log(rows: list[dict], path: Path, run_started: datetime,
     # ---- Sheet 4: what this run actually did ---------------------------
     info = wb.create_sheet("Run Summary")
     filters = []
-    if args.assignment:
-        filters.append("assignments: " + ", ".join(str(a) for a in args.assignment))
-    if args.section:
-        filters.append("sections: " + ", ".join(args.section))
-    if args.student:
-        filters.append("students: " + ", ".join(args.student))
+    if run.assignment_ids:
+        filters.append("assignments: " + ", ".join(str(a) for a in run.assignment_ids))
+    if run.section_specs:
+        filters.append("sections: " + ", ".join(run.section_specs))
+    if run.student_specs:
+        filters.append("students: " + ", ".join(run.student_specs))
 
     info.append(["Field", "Value"])
     for label, value in [
-        ("Run started", run_started.strftime("%Y-%m-%d %H:%M:%S")),
-        ("Course ID", args.course),
-        ("Canvas host", args.base_url),
+        ("Run started", run.run_started.strftime("%Y-%m-%d %H:%M:%S")),
+        ("Course ID", run.course_id),
+        ("Canvas host", run.base_url),
         ("Filters", "; ".join(filters) or "none (all students)"),
-        ("Times shown in", args.tz or "UTC, as returned by Canvas"),
-        ("Output folder", str(Path(args.out).resolve())),
+        ("Times shown in", run.tz_name or "UTC, as returned by Canvas"),
+        ("Output folder", str(Path(run.out_root).resolve())),
         ("Files downloaded",
          f"=COUNTA(Files!${COL_FILE}$2:${COL_FILE}${last_row})"
          f'-COUNTIF(Files!${COL_STATUS}$2:${COL_STATUS}${last_row},"failed*")'),

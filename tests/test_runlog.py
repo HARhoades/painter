@@ -1,6 +1,5 @@
 """Excel run log: formulas point at the right columns (review finding 12)."""
 from datetime import datetime
-from types import SimpleNamespace
 
 import pytest
 
@@ -9,9 +8,8 @@ from painter.storage import runlog_xlsx as rl
 openpyxl = pytest.importorskip("openpyxl")
 
 
-def _args(tmp_path):
-    return SimpleNamespace(assignment=None, section=None, student=None, course=100,
-                           base_url="https://canvas.test", tz=None, out=str(tmp_path))
+def _info(tmp_path):
+    return rl.RunInfo(datetime(2026, 11, 12), 100, "https://canvas.test", tmp_path)
 
 
 def test_column_letters_follow_log_columns():
@@ -32,7 +30,7 @@ def test_written_log_headers_match_formula_columns(tmp_path):
     rows = [{"assignment": "A", "assignment_id": 1, "student": "Doe, Jane",
              "user_id": 501, "section": "A1-8", "late": True, "filename": "x.pdf"}]
     path = tmp_path / "log.xlsx"
-    rl.write_run_log(rows, path, datetime(2026, 11, 12), _args(tmp_path))
+    rl.write_run_log(rows, path, _info(tmp_path))
     ws = openpyxl.load_workbook(path)["Files"]
     assert ws[f"{rl.COL_USER_ID}1"].value == "User ID"
     assert ws[f"{rl.COL_NEW_SUB}1"].value == "New submission"

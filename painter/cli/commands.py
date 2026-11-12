@@ -12,11 +12,17 @@ import sys
 
 from painter.canvas.client import Canvas
 from painter.cli.console import ConsoleReporter, grade_plan_lines, organize_plan_lines
+from painter.domain.duedates import parse_tz
+from painter.domain.roster import Roster
 from painter.domain.selection import Selection
+from painter.events import emit
 from painter.services.grade_files import GradeFilesRequest, make_grade_files
 from painter.services.grading import plan_grades, post_grade_plans
 from painter.services.organize import OrganizeRequest, execute_organize, plan_organize
 from painter.services.roster_export import RosterExportRequest, export_roster_csv
+from painter.services.submissions import (
+    DownloadRequest, download_submissions, section_listing, student_listing,
+)
 
 CONSOLE = ConsoleReporter()
 
@@ -97,3 +103,42 @@ def organize(args) -> int:
     if not args.dry_run:
         execute_organize(plan, CONSOLE)
     return 0
+
+
+def download(canvas: Canvas, args, run_started: datetime) -> int:
+    """The default mode: --list-*, or download submission files."""
+    parse_tz(args.tz)                       # an unknown zone fails before any request
+    if args.list_sections or args.list_students:
+        roster = Roster.load(canvas, args.course)
+        if args.list_sections:
+            for s in section_listing(roster):
+                sis = s["sis_section_id"] or "-"
+                print(f"{s['id']:>10}  {sis:<16}  {s['students']:>4} students  {s['name']}")
+            return 0
+        listing = student_listing(canvas, args.course, roster, selection_from(args),
+                                  tuple(args.assignment or ()))
+        emit(listing.notes, CONSOLE)
+        for u in listing.users:
+            sis = u.get("sis_user_id") or u.get("login_id") or "-"
+            secs = "; ".join(roster.section_names(u["id"])) or "-"
+            print(f"{u['id']:>10}  {sis:<16}  {u.get('sortable_name', ''):<32}  {secs}")
+        print(f"{len(listing.users)} student(s)"
+              + (f" of {listing.in_course} in the course" if listing.filtered else ""),
+              file=sys.stderr)
+        return 0
+    if args.list_assignments:
+        if args.student or args.section or args.by_section:
+            Roster.load(canvas, args.course)  # kept: same requests as before
+        for a in canvas.assignments(args.course):
+            print(f"{a['id']:>10}  {a['name']}")
+        return 0
+
+    result = download_submissions(canvas, DownloadRequest(
+        course_id=args.course, out_root=Path(args.out),
+        assignment_ids=tuple(args.assignment or ()), selection=selection_from(args),
+        by_section=args.by_section, flat=args.flat, extract=not args.no_extract,
+        history=args.history, tz=args.tz, excel_log=not args.no_xlsx,
+        log_dir=Path(args.log_dir) if args.log_dir else None,
+        run_started=run_started), CONSOLE)
+    # 1 = finished, but some files are missing (same meaning as --post-grades).
+    return 1 if result.failures else 0

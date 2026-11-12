@@ -95,3 +95,27 @@ def test_organize_plan_changes_nothing_then_execute(tmp_path, capsys):
     assert (res.done, res.skipped) == (2, 0) and res.log_path.exists()
     assert (src / "A1-8" / "Doe-Jane_501" / "essay.pdf").exists()
     assert capsys.readouterr() == ("", "")
+
+
+def test_download_service_result_progress_and_cancel(canvas, tmp_path, capsys):
+    from painter.errors import Cancelled
+    from painter.services.submissions import DownloadRequest, download_submissions
+    rep = RecordingReporter()
+    res = download_submissions(canvas, DownloadRequest(
+        100, tmp_path / "o", assignment_ids=(7001,), excel_log=False), rep)
+    assert res.failures == 0 and len(res.rows) == 2 and res.manifest.exists()
+    assert {r["status"] for r in res.rows} == {"downloaded"}
+    assert rep.progress_events[-1][:2] == (1, 1)
+    with pytest.raises(Cancelled, match="rerun to resume"):
+        download_submissions(canvas, DownloadRequest(
+            100, tmp_path / "c", excel_log=False), RecordingReporter(cancel_after=1))
+    assert not list((tmp_path / "c").rglob("*.part"))
+    assert capsys.readouterr() == ("", "")
+
+
+def test_student_listing(canvas):
+    from painter.domain.roster import Roster
+    from painter.services.submissions import student_listing
+    roster = Roster.load(canvas, 100)
+    listing = student_listing(canvas, 100, roster, Selection.of(["A2"]), (7001,))
+    assert [u["id"] for u in listing.users] == [503, 502] and listing.filtered

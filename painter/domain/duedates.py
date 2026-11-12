@@ -84,3 +84,16 @@ class DueDates:
             return latest[0], label
 
         return self.base, "everyone"
+
+
+def parse_tz(name: str | None):
+    """A tzinfo for an IANA zone name, or None for UTC as Canvas returns it.
+    Raises errors.InvalidInput for an unknown name."""
+    if not name:
+        return None
+    from painter.errors import InvalidInput
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception as exc:
+        raise InvalidInput(f"Unknown timezone {name!r}: {exc}")

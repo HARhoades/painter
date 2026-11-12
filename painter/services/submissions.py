@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-import sys
 
 from painter.canvas.client import Canvas
-from painter.domain.selection import select_students
 from painter.domain.assignments import assignment_folder, quiz_kind
-from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts
+from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts, parse_tz
 from painter.domain.naming import attachment_filenames, flat_filename, slug, student_dir_name
 from painter.domain.roster import Roster, assigned_students
+from painter.domain.selection import Selection
+from painter.errors import Cancelled, InvalidInput
+from painter.events import NULL, Note, Reporter, emit
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
-from painter.storage.runlog_xlsx import log_filename, write_run_log
+from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
 
 
 def collect_attachments(sub: dict, include_history: bool) -> list[dict]:
@@ -65,91 +67,127 @@ def write_manifest(path: Path, rows: list[dict]) -> int:
     return len(merged)
 
 
-def run_download(canvas: Canvas, args, run_started: datetime) -> int:
-    """The default mode: --list-*, or download submission files for the course."""
-    tz = None
-    if args.tz:
+# --------------------------------------------------------------------------
+# Listings (--list-sections, --list-students, --list-assignments)
+# --------------------------------------------------------------------------
+def section_listing(roster: Roster) -> list[dict]:
+    """Sections sorted by name, each with its student count."""
+    return [{"id": s["id"], "sis_section_id": s.get("sis_section_id"),
+             "name": s.get("name", ""),
+             "students": len(roster.users_of_section.get(s["id"], set()))}
+            for s in sorted(roster.sections, key=lambda x: x.get("name") or "")]
+
+
+@dataclass
+class StudentListing:
+    users: list[dict]                     # sorted by sortable name
+    in_course: int                        # students in the whole course
+    filtered: bool                        # a filter narrowed the list
+    notes: list[Note] = field(default_factory=list)
+
+
+def student_listing(canvas: Canvas, course_id: int, roster: Roster,
+                    selection: Selection = Selection(),
+                    assignment_ids: tuple[int, ...] = ()) -> StudentListing:
+    """Same selection rules as a download run: (--section OR --student), then
+    narrowed to students who have one of assignment_ids, if given."""
+    chosen = selection.resolve(roster)
+    users = [u for u in roster.users.values()
+             if chosen.student_ids is None or u["id"] in chosen.student_ids]
+    if assignment_ids:
         try:
-            from zoneinfo import ZoneInfo
-            tz = ZoneInfo(args.tz)
-        except Exception as exc:
-            raise SystemExit(f"Unknown timezone {args.tz!r}: {exc}")
+            assigned = assigned_students(canvas, course_id, list(assignment_ids))
+        except InvalidInput as exc:
+            exc.notes = chosen.notes + exc.notes
+            raise
+        users = [u for u in users if u["id"] in assigned]
+    users.sort(key=lambda x: x.get("sortable_name") or "")
+    return StudentListing(users, len(roster.users),
+                          chosen.student_ids is not None or bool(assignment_ids),
+                          chosen.notes)
 
-    # The roster is needed for any filtering, for --by-section, and for the
-    # section column in the manifest. Built once, two API calls.
-    need_roster = bool(args.student or args.section or args.by_section
-                       or args.list_students or args.list_sections)
-    roster = None
-    if need_roster:
-        roster = Roster(canvas.sections(args.course),
-                        canvas.student_enrollments(args.course))
 
-    if args.list_sections:
-        for s in sorted(roster.sections, key=lambda x: x.get("name") or ""):
-            sis = s.get("sis_section_id") or "-"
-            count = len(roster.users_of_section.get(s["id"], set()))
-            print(f"{s['id']:>10}  {sis:<16}  {count:>4} students  {s.get('name', '')}")
-        return 0
+# --------------------------------------------------------------------------
+# Downloading submission files
+# --------------------------------------------------------------------------
+@dataclass
+class DownloadRequest:
+    course_id: int
+    out_root: Path
+    assignment_ids: tuple[int, ...] = ()   # empty: every assignment
+    selection: Selection = field(default_factory=Selection)
+    by_section: bool = False               # a folder per section
+    flat: bool = False                     # no per-student folders
+    extract: bool = True                   # unpack zip/tar attachments
+    history: bool = False                  # earlier attempts too
+    tz: str | None = None                  # IANA zone for displayed times
+    excel_log: bool = True
+    log_dir: Path | None = None            # default: out_root
+    run_started: datetime = field(default_factory=datetime.now)
 
-    if args.list_students:
-        # Same selection rules as a download run: (--section OR --student),
-        # then narrowed to students who have --assignment, if given.
-        student_ids, _ = select_students(roster, args)
-        users = [u for u in roster.users.values()
-                 if student_ids is None or u["id"] in student_ids]
-        if args.assignment:
-            assigned = assigned_students(canvas, args.course, args.assignment)
-            users = [u for u in users if u["id"] in assigned]
-        for u in sorted(users, key=lambda x: x.get("sortable_name") or ""):
-            sis = u.get("sis_user_id") or u.get("login_id") or "-"
-            secs = "; ".join(roster.section_names(u["id"])) or "-"
-            print(f"{u['id']:>10}  {sis:<16}  {u.get('sortable_name', ''):<32}  {secs}")
-        filtered = student_ids is not None or bool(args.assignment)
-        print(f"{len(users)} student(s)"
-              + (f" of {len(roster.users)} in the course" if filtered else ""),
-              file=sys.stderr)
-        return 0
 
-    assignments = canvas.assignments(args.course)
+@dataclass
+class DownloadResult:
+    rows: list[dict]                       # one per attachment, as in manifest.csv
+    failures: int                          # attachments that could not be fetched
+    new_quizzes_without_files: list[dict]  # New Quizzes: uploads not reachable here
+    manifest: Path | None = None
+    log_path: Path | None = None
 
-    if args.list_assignments:
-        for a in assignments:
-            print(f"{a['id']:>10}  {a['name']}")
-        return 0
+
+def download_submissions(canvas: Canvas, req: DownloadRequest,
+                         reporter: Reporter = NULL) -> DownloadResult:
+    """Download submission files, then write manifest.csv and the Excel log.
+
+    A file that fails is recorded with status "failed: ..." and counted in
+    result.failures; the run carries on. Cancellation is checked before
+    each file and leaves the tree as a rerun expects (no partial files).
+    """
+    tz = parse_tz(req.tz)
+
+    # The roster is needed for any filtering and for --by-section. Built
+    # once, two API calls.
+    roster = (Roster.load(canvas, req.course_id)
+              if req.selection.active or req.by_section else None)
+    assignments = canvas.assignments(req.course_id)
 
     # None means "no filter" -- the all-students pass stays the default.
-    student_ids, section_ids = (select_students(roster, args) if roster
-                                else (None, set()))
+    student_ids, section_ids = None, set()
+    if roster:
+        chosen = req.selection.resolve(roster)
+        emit(chosen.notes, reporter)
+        student_ids, section_ids = chosen.student_ids, chosen.section_ids
     if student_ids is not None:
-        print(f"Filtering to {len(student_ids)} student(s).")
+        reporter.info(f"Filtering to {len(student_ids)} student(s).")
 
-    if args.assignment:
-        wanted = set(args.assignment)
+    if req.assignment_ids:
+        wanted = set(req.assignment_ids)
         assignments = [a for a in assignments if a["id"] in wanted]
 
-    out_root = Path(args.out)
+    out_root = Path(req.out_root)
     rows = []
     failures = 0
     new_quizzes_without_files: list[dict] = []
 
-    for assign in assignments:
+    for n_assign, assign in enumerate(assignments, start=1):
+        reporter.progress(n_assign - 1, len(assignments), assign["name"])
         adir, note = assignment_folder(out_root, assign)
         if note:
-            print(note, file=sys.stderr)
+            reporter.warning(note)
         due = DueDates(assign)
         base_str = fmt_ts(due.base, tz) or "no due date"
         is_new_quiz = quiz_kind(assign) == "new"
-        print(f"\n[{assign['id']}] {assign['name']}  (due {base_str})"
-              + ("  [New Quiz]" if is_new_quiz else ""))
+        reporter.info(f"\n[{assign['id']}] {assign['name']}  (due {base_str})"
+                      + ("  [New Quiz]" if is_new_quiz else ""))
         submitted = with_files = 0
 
-        for sub in canvas.submissions(args.course, assign["id"], args.history):
+        for sub in canvas.submissions(req.course_id, assign["id"], req.history):
             if student_ids is not None and sub.get("user_id") not in student_ids:
                 continue
             if sub.get("workflow_state") == "unsubmitted":
                 continue
             submitted += 1
-            attachments = collect_attachments(sub, args.history)
+            attachments = collect_attachments(sub, req.history)
             if not attachments:
                 continue
             with_files += 1
@@ -165,20 +203,22 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
             status = sub.get("late_policy_status") or ""
 
             sdir = adir
-            if args.by_section:
+            if req.by_section:
                 sdir = sdir / slug(section_label or "no-section", 40)
-            if not args.flat:
+            if not req.flat:
                 sdir = sdir / student_dir_name(sub)
             flag = f"  [LATE +{lateness}]" if lateness else ""
             if status == "excused":
                 flag = "  [EXCUSED]"
             where = (sdir.relative_to(adir) / student_dir_name(sub)
-                     if args.flat else sdir.relative_to(adir))
-            print(f"  {where}"
-                  f"  submitted {fmt_ts(sub.get('submitted_at'), tz) or '-'}{flag}")
+                     if req.flat else sdir.relative_to(adir))
+            reporter.info(f"  {where}"
+                          f"  submitted {fmt_ts(sub.get('submitted_at'), tz) or '-'}{flag}")
 
             for att, fname in zip(attachments, attachment_filenames(attachments)):
-                if args.flat:
+                if reporter.cancelled():
+                    raise Cancelled(f"stopped after {len(rows)} file(s); rerun to resume")
+                if req.flat:
                     fname = flat_filename(sub, fname)
                 target = sdir / fname
                 extracted_to = ""
@@ -188,25 +228,25 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                 try:
                     fresh = download(canvas, att["url"], target, att.get("size"))
                     if fresh.note:
-                        print(fresh.note, file=sys.stderr)
+                        reporter.warning(fresh.note)
                 except Exception as exc:
                     failures += 1
                     status_text = f"failed: {exc}"
-                    print(f"    ! failed {fname}: {exc}")
+                    reporter.info(f"    ! failed {fname}: {exc}")
                 else:
                     status_text = "downloaded" if fresh else "cached"
-                    print(f"    {status_text} {fname}")
-                    if not args.no_extract and target.suffix.lower() in ARCHIVE_SUFFIXES:
+                    reporter.info(f"    {status_text} {fname}")
+                    if req.extract and target.suffix.lower() in ARCHIVE_SUFFIXES:
                         unpack_dir = sdir / target.stem
                         if not fresh and unpack_dir.is_dir():
                             extracted_to = str(unpack_dir)   # done on an earlier run
                         else:
                             unpacked = extract(target, unpack_dir)
                             for note in unpacked.notes:
-                                print(note)
+                                reporter.info(note)
                             if unpacked:
                                 extracted_to = str(unpack_dir)
-                                print(f"      extracted -> {unpack_dir.name}/")
+                                reporter.info(f"      extracted -> {unpack_dir.name}/")
                             else:
                                 status_text += "; extract failed"
 
@@ -240,43 +280,49 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
             # files from File Upload questions stay inside New Quizzes and
             # never appear as attachments on the Canvas submission.
             new_quizzes_without_files.append(assign)
-            print(f"  {submitted} submitted, but New Quizzes keeps File Upload "
-                  "answers inside the quiz tool, not on the Canvas submission, "
-                  "so there are no attachments to download here.")
+            reporter.info(f"  {submitted} submitted, but New Quizzes keeps File Upload "
+                          "answers inside the quiz tool, not on the Canvas submission, "
+                          "so there are no attachments to download here.")
+    reporter.progress(len(assignments), len(assignments))
 
+    result = DownloadResult(rows, failures, new_quizzes_without_files)
     if new_quizzes_without_files:
-        print("\nNew Quiz file uploads can't be fetched with the Submissions API. "
-              "To try pulling them from the quiz's answers report instead, run:")
+        reporter.info("\nNew Quiz file uploads can't be fetched with the Submissions API. "
+                      "To try pulling them from the quiz's answers report instead, run:")
         for a in new_quizzes_without_files:
-            print(f"  --course {args.course} --assignment {a['id']} "
-                  "--export-quiz --quiz-uploads --no-course-export")
+            reporter.info(f"  --course {req.course_id} --assignment {a['id']} "
+                          "--export-quiz --quiz-uploads --no-course-export")
 
     if rows:
         out_root.mkdir(parents=True, exist_ok=True)
-        manifest = out_root / "manifest.csv"
-        total = write_manifest(manifest, rows)
-        print(f"\n{len(rows)} file(s). Manifest: {manifest}"
-              + (f" ({total} row(s) including earlier runs)" if total != len(rows) else ""))
+        result.manifest = out_root / "manifest.csv"
+        total = write_manifest(result.manifest, rows)
+        reporter.info(f"\n{len(rows)} file(s). Manifest: {result.manifest}"
+                      + (f" ({total} row(s) including earlier runs)"
+                         if total != len(rows) else ""))
         if failures:
-            print(f"{failures} file(s) could not be downloaded; they are listed "
-                  "in the manifest with status 'failed'.", file=sys.stderr)
+            reporter.warning(f"{failures} file(s) could not be downloaded; they are "
+                             "listed in the manifest with status 'failed'.")
     else:
-        print("\nNo submission files found."
-              + (" (New Quizzes skipped for the reason above.)"
-                 if new_quizzes_without_files else ""))
+        reporter.info("\nNo submission files found."
+                      + (" (New Quizzes skipped for the reason above.)"
+                         if new_quizzes_without_files else ""))
 
     # The Excel log is written even on an empty run, so there is a record
     # that the run happened and matched nothing.
-    if not args.no_xlsx:
-        log_dir = Path(args.log_dir) if args.log_dir else out_root
-        log_path = log_dir / log_filename(run_started)
+    if req.excel_log:
+        log_dir = Path(req.log_dir) if req.log_dir else out_root
+        log_path = log_dir / log_filename(req.run_started)
         try:
-            write_run_log(rows, log_path, run_started, args)
-            print(f"Excel log: {log_path}")
+            write_run_log(rows, log_path, RunInfo(
+                req.run_started, req.course_id, canvas.base, out_root,
+                tuple(req.assignment_ids), req.selection.sections,
+                req.selection.students, req.tz))
+            result.log_path = log_path
+            reporter.info(f"Excel log: {log_path}")
         except ImportError:
-            print("Excel log skipped: openpyxl is not installed "
-                  "(pip install openpyxl, or pass --no-xlsx).", file=sys.stderr)
+            reporter.warning("Excel log skipped: openpyxl is not installed "
+                             "(pip install openpyxl, or pass --no-xlsx).")
         except Exception as exc:
-            print(f"Excel log failed: {exc}", file=sys.stderr)
-    # 1 = finished, but some files are missing (same meaning as --post-grades).
-    return 1 if failures else 0
+            reporter.warning(f"Excel log failed: {exc}")
+    return result
