@@ -91,6 +91,37 @@ class GradeFilesResult:
     kept: list[Path] = field(default_factory=list)       # existed, not overwritten
 
 
+def _assignment_and_label(canvas: Canvas, req: GradeFilesRequest) -> tuple[dict | None, str]:
+    """The assignment (optional: without it the header is left blank to fill
+    in) and the label that names the files."""
+    label = req.label
+    assignment = require_one(canvas, req.course_id, req.assignment_ids,
+                             "--make-grade-files takes at most one --assignment.",
+                             optional=True)
+    if assignment:
+        label = label or (assignment.get("name") or "").split()[0]
+    if not label:
+        raise InvalidInput("Without --assignment, pass --assignment-label NAME for "
+                           "the filename, e.g. --assignment-label DATE.")
+    return assignment, slug(label, 30)
+
+
+def _academic_term(canvas: Canvas, req: GradeFilesRequest,
+                   reporter: Reporter) -> tuple[str, str]:
+    """AY (two digits) and semester: from --ay/--term, else the course's term name."""
+    ay, term = req.ay, req.term
+    if not (ay and term):
+        term_name = ((canvas.course(req.course_id).get("term") or {}).get("name") or "")
+        parsed = parse_term_name(term_name)
+        if not parsed:
+            raise InvalidInput(
+                f"Could not read an academic year and semester from the course "
+                f"term name {term_name!r}. Pass --ay and --term, e.g. --ay 27 --term 1.")
+        ay, term = ay or parsed[0], term or parsed[1]
+        reporter.info(f"Term {term_name!r} -> AY{ay}, semester {term}")
+    return ay[-2:], term
+
+
 def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
                      reporter: Reporter = NULL) -> GradeFilesResult:
     """Write one blank grade file per section."""
@@ -103,30 +134,8 @@ def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
         section_ids = {s["id"] for s in roster.sections}
         reporter.info("No --section given: writing a file for every section in the course.")
 
-    # Assignment is optional; without it the header is left blank to fill in.
-    label = req.label
-    assignment = require_one(canvas, req.course_id, req.assignment_ids,
-                             "--make-grade-files takes at most one --assignment.",
-                             optional=True)
-    if assignment:
-        label = label or (assignment.get("name") or "").split()[0]
-    if not label:
-        raise InvalidInput("Without --assignment, pass --assignment-label NAME for "
-                           "the filename, e.g. --assignment-label DATE.")
-    label = slug(label, 30)
-
-    # AY and semester: from --ay/--term, else from the course's term name.
-    ay, term = req.ay, req.term
-    if not (ay and term):
-        term_name = ((canvas.course(req.course_id).get("term") or {}).get("name") or "")
-        parsed = parse_term_name(term_name)
-        if not parsed:
-            raise InvalidInput(
-                f"Could not read an academic year and semester from the course "
-                f"term name {term_name!r}. Pass --ay and --term, e.g. --ay 27 --term 1.")
-        ay, term = ay or parsed[0], term or parsed[1]
-        reporter.info(f"Term {term_name!r} -> AY{ay}, semester {term}")
-    ay = ay[-2:]
+    assignment, label = _assignment_and_label(canvas, req)
+    ay, term = _academic_term(canvas, req, reporter)
 
     # Teachers first, TAs only where a section has no teacher: the same rule
     # as the roster CSV (review finding 6).
