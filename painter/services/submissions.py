@@ -35,6 +35,35 @@ def collect_attachments(sub: dict, include_history: bool) -> list[dict]:
     return out
 
 
+def write_manifest(path: Path, rows: list[dict]) -> int:
+    """Merge this run's rows into manifest.csv, keyed by saved path.
+
+    A run of one assignment or one section no longer erases the rows from
+    earlier runs; a file fetched again replaces its old row. Written with a
+    BOM like every other CSV here (review finding 13). Returns the row count.
+    """
+    merged: dict[str, dict] = {}
+    columns: list[str] = []
+    if path.exists():
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            reader = csv.DictReader(fh)
+            columns = list(reader.fieldnames or [])
+            for old in reader:
+                merged[old.get("path") or f"#{len(merged)}"] = old
+    for row in rows:
+        for key in row:
+            if key not in columns:
+                columns.append(key)
+        merged[str(row["path"])] = row
+    tmp = path.with_name(path.name + ".part")
+    with open(tmp, "w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=columns, restval="")
+        writer.writeheader()
+        writer.writerows(merged.values())
+    tmp.replace(path)
+    return len(merged)
+
+
 def run_download(canvas: Canvas, args, run_started: datetime) -> int:
     """The default mode: --list-*, or download submission files for the course."""
     tz = None
@@ -215,11 +244,9 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
     if rows:
         out_root.mkdir(parents=True, exist_ok=True)
         manifest = out_root / "manifest.csv"
-        with open(manifest, "w", newline="", encoding="utf-8") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(rows)
-        print(f"\n{len(rows)} file(s). Manifest: {manifest}")
+        total = write_manifest(manifest, rows)
+        print(f"\n{len(rows)} file(s). Manifest: {manifest}"
+              + (f" ({total} row(s) including earlier runs)" if total != len(rows) else ""))
         if failures:
             print(f"{failures} file(s) could not be downloaded; they are listed "
                   "in the manifest with status 'failed'.", file=sys.stderr)

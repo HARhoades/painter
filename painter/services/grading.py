@@ -427,7 +427,8 @@ def post_grades(canvas: Canvas, args, run_started: datetime) -> int:
     log_path = log_dir / run_started.strftime("grade_post_log_%Y%m%d_%H%M%S.csv")
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "w", newline="", encoding="utf-8") as fh:
+        # BOM, like every other CSV here, so Excel reads accented names.
+        with open(log_path, "w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
             writer.writeheader()
             writer.writerows(rows)

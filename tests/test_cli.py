@@ -60,7 +60,8 @@ def test_download_default_layout(fake_canvas, run_cli, tmp_path):
     ]
     assert "[LATE +1d]" in out and "extracted -> analysis/" in out
     assert "2 file(s). Manifest:" in out
-    rows = read_csv(out_dir / "manifest.csv", "utf-8")
+    rows = read_csv(out_dir / "manifest.csv")
+    assert (out_dir / "manifest.csv").read_bytes().startswith(b"\xef\xbb\xbf")
     assert [(r["student"], r["filename"], r["late"], r["late_by"]) for r in rows] == [
         ("Doe, Jane", "essay.pdf", "False", ""), ("Roe, Rick", "analysis.zip", "True", "1d")]
     assert rows[0]["due_source"] == "everyone" and rows[0]["section"] == ""
@@ -84,7 +85,7 @@ def test_download_by_section_flat_filtered(fake_canvas, run_cli, tmp_path):
     assert tree(out_dir) == ["01_DATE-Scenario/A2-8/Roe-Rick_502__analysis.zip",
                              "manifest.csv"]
     assert "Filtering to 2 student(s)." in out
-    row = read_csv(out_dir / "manifest.csv", "utf-8")[0]
+    row = read_csv(out_dir / "manifest.csv")[0]
     assert row["section"] == "A2-8" and row["due_source"] == "section override"
     assert row["due_at"] == "2026-09-02 23:59"       # converted from UTC
 
@@ -106,6 +107,17 @@ def test_download_failure_is_recorded_and_exit_code_is_1(fake_canvas, run_cli, t
     xlsx = next(out_dir.glob("submission_log_*.xlsx"))
     files = openpyxl.load_workbook(xlsx)["Files"]
     assert files.max_row == 3
+
+
+def test_manifest_keeps_rows_from_earlier_runs(fake_canvas, run_cli, tmp_path):
+    """Review finding 13: a narrower rerun merges into manifest.csv."""
+    out_dir = tmp_path / "o"
+    run_cli(*COMMON, "--out", str(out_dir), "--no-xlsx")
+    code, out, _ = run_cli(*COMMON, "--out", str(out_dir), "--no-xlsx",
+                           "--student", "Doe")
+    assert code == 0 and "(2 row(s) including earlier runs)" in out
+    rows = read_csv(out_dir / "manifest.csv")
+    assert sorted(r["filename"] for r in rows) == ["analysis.zip", "essay.pdf"]
 
 
 def test_download_with_nothing_submitted(fake_canvas, run_cli, tmp_path):
@@ -192,7 +204,8 @@ def test_post_grades_posts_one_bulk_request_and_verifies(fake_canvas, run_cli, t
     assert "Verified: all 2 update(s) are on Canvas." in out
     log = list(tmp_path.glob("grade_post_log_*.csv"))
     assert len(log) == 1
-    rows = read_csv(log[0], "utf-8")
+    assert log[0].read_bytes().startswith(b"\xef\xbb\xbf")    # finding 13
+    rows = read_csv(log[0])
     assert [(r["student"], r["grade_sent"], r["problems"]) for r in rows] == [
         ("Roe, Rick", "8.5", ""), ("De La Cruz, Ana", "EXCUSED", "")]
 
