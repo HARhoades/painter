@@ -356,7 +356,10 @@ from painter.services.grade_files import (  # noqa: F401
     render_grade_file, section_prefix,
 )
 from painter.services.roster_export import (  # noqa: F401
-    ROSTER_CSV_COLUMNS, export_roster_csv,
+    ROSTER_CSV_COLUMNS, RosterExportRequest, RosterExportResult,
+)
+from painter.cli.commands import (  # noqa: F401  (old (canvas, args) signatures)
+    roster_csv as export_roster_csv,
 )
 from painter.services.organize import (  # noqa: F401
     RosterIndex, organize_submissions, read_roster_csv,

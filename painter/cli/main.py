@@ -10,6 +10,7 @@ import sys
 import requests
 
 from painter.canvas.client import Canvas, check_base_url
+from painter.cli import commands
 from painter.cli.console import ConsoleReporter
 from painter.errors import CanvasHTTPError, PainterError
 from painter.events import emit
@@ -19,7 +20,6 @@ from painter.services.grading import post_grades
 from painter.services.organize import organize_submissions
 from painter.services.quiz_export import export_quiz
 from painter.services.quiz_uploads import browser_quiz_uploads
-from painter.services.roster_export import export_roster_csv
 from painter.services.submissions import run_download
 
 
@@ -236,7 +236,7 @@ def _main() -> int:
         return make_grade_files(canvas, args)
 
     if args.roster_csv:
-        return export_roster_csv(canvas, args)
+        return commands.roster_csv(canvas, args)
 
     if args.export_quiz:
         return export_quiz(canvas, args)

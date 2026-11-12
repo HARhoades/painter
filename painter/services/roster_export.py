@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass, field
 from pathlib import Path
-import sys
 
 from painter.canvas.client import Canvas
-from painter.domain.selection import select_students
 from painter.domain.roster import (
     Roster, assigned_students, section_instructors, split_name,
 )
+from painter.domain.selection import Selection
+from painter.events import NULL, Reporter, emit
 
 
 # --------------------------------------------------------------------------
@@ -22,15 +23,35 @@ ROSTER_CSV_COLUMNS = [
 ]
 
 
-def export_roster_csv(canvas: Canvas, args) -> int:
-    """--roster-csv: one line per student (per section), sorted by last name."""
-    roster = Roster(canvas.sections(args.course),
-                    canvas.student_enrollments(args.course))
-    student_ids, section_ids = select_students(roster, args)
-    if args.assignment:
-        assigned = assigned_students(canvas, args.course, args.assignment)
+@dataclass
+class RosterExportRequest:
+    course_id: int
+    path: Path
+    selection: Selection = field(default_factory=Selection)
+    assignment_ids: tuple[int, ...] = ()     # keep only students who have these
+
+
+@dataclass
+class RosterExportResult:
+    path: Path
+    rows: list[dict]
+    students: int
+    extra_lines: int                          # students in more than one section
+    sections_without_instructor: list[str]
+
+
+def export_roster_csv(canvas: Canvas, req: RosterExportRequest,
+                      reporter: Reporter = NULL) -> RosterExportResult:
+    """One line per student (per section), sorted by last name."""
+    roster = Roster(canvas.sections(req.course_id),
+                    canvas.student_enrollments(req.course_id))
+    chosen = req.selection.resolve(roster)
+    emit(chosen.notes, reporter)
+    student_ids, section_ids = chosen.student_ids, chosen.section_ids
+    if req.assignment_ids:
+        assigned = assigned_students(canvas, req.course_id, list(req.assignment_ids))
         student_ids = assigned if student_ids is None else student_ids & assigned
-    instructors = section_instructors(canvas, args.course)
+    instructors = section_instructors(canvas, req.course_id)
 
     rows = []
     for uid, user in roster.users.items():
@@ -60,7 +81,7 @@ def export_roster_csv(canvas: Canvas, args) -> int:
                              str(r["Student Canvas ID"]),
                              r["Section Name"].casefold()))
 
-    path = Path(args.roster_csv)
+    path = Path(req.path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=ROSTER_CSV_COLUMNS)
@@ -69,13 +90,13 @@ def export_roster_csv(canvas: Canvas, args) -> int:
 
     students = len({r["Student Canvas ID"] for r in rows})
     extra = len(rows) - students
-    print(f"{students} student(s), {len(rows)} line(s) -> {path}")
+    reporter.info(f"{students} student(s), {len(rows)} line(s) -> {path}")
     if extra:
-        print(f"  note: {extra} extra line(s) for students in more than one "
-              "section; filter with --section to keep one", file=sys.stderr)
+        reporter.warning(f"  note: {extra} extra line(s) for students in more than one "
+                         "section; filter with --section to keep one")
     no_teacher = sorted({r["Section Name"] for r in rows
                          if not r["Instructor Last Name"]})
     if no_teacher:
-        print("  note: no instructor enrolled in: " + ", ".join(
-            n or "(no section)" for n in no_teacher), file=sys.stderr)
-    return 0
+        reporter.warning("  note: no instructor enrolled in: " + ", ".join(
+            n or "(no section)" for n in no_teacher))
+    return RosterExportResult(path, rows, students, extra, no_teacher)
