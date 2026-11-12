@@ -8,7 +8,7 @@ import re
 from painter.canvas.client import Canvas
 from painter.errors import NotFound
 from painter.domain.naming import slug
-from painter.domain.roster import Roster, instructor_label, resolve_sections
+from painter.domain.roster import Roster, resolve_sections, section_instructors
 
 
 # --------------------------------------------------------------------------
@@ -108,15 +108,9 @@ def make_grade_files(canvas: Canvas, args) -> int:
         print(f"Term {term_name!r} -> AY{ay}, semester {term}")
     ay = ay[-2:]
 
-    instructors: dict[int, list[str]] = {}
-    for enr in canvas.teacher_enrollments(args.course):
-        sid = enr.get("course_section_id")
-        name = instructor_label(enr)
-        if sid is None or not name:
-            continue
-        instructors.setdefault(sid, [])
-        if name not in instructors[sid]:
-            instructors[sid].append(name)
+    # Teachers first, TAs only where a section has no teacher: the same rule
+    # as the roster CSV (review finding 6).
+    instructors = section_instructors(canvas, args.course)
 
     out_dir = Path(args.grade_file_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

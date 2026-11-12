@@ -128,6 +128,16 @@ def test_download_with_nothing_submitted(fake_canvas, run_cli, tmp_path):
 
 
 # ---- roster and grade files ---------------------------------------------------
+def test_grade_file_instructor_prefers_teacher_over_ta(fake_canvas, run_cli, tmp_path):
+    """Review finding 6: a TA listed first must not become instructor=."""
+    fake_canvas.teachers.reverse()            # TA for A2-8 now comes first
+    code, _, err = run_cli(*COMMON, "--make-grade-files", "--assignment", "7001",
+                           "--grade-file-dir", str(tmp_path))
+    assert code == 0, err
+    text = (tmp_path / "A2-DATE_Grading-27-1.txt").read_text(encoding="utf-8")
+    assert "instructor=Smith\n" in text
+
+
 def test_roster_csv(fake_canvas, run_cli, tmp_path):
     path = tmp_path / "roster.csv"
     code, out, _ = run_cli(*COMMON, "--roster-csv", str(path))
