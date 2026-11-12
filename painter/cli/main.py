@@ -75,6 +75,10 @@ def _selection(p: argparse.ArgumentParser) -> None:
     p.add_argument("--student", action="append", metavar="SPEC",
                    help="Canvas ID, SIS ID, login or name (repeatable). With "
                         "--section, everyone in either is selected.")
+    p.add_argument("--exclude", action="append", metavar="SPEC",
+                   help="A student to leave out of the selection (repeatable): "
+                        "Canvas ID, SIS ID, login or name. Alone, means everyone "
+                        "except them.")
 
 
 def _command(subs, name: str, run, help: str, description: str | None = None):

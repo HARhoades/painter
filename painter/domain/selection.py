@@ -1,4 +1,5 @@
-"""Which students a run is about: --section and --student, as a union."""
+"""Which students a run is about: --section and --student, as a union,
+minus anyone named by --exclude."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,15 +14,16 @@ class Selection:
     """Section and student specs (ID, SIS ID, login or name)."""
     sections: tuple[str, ...] = ()
     students: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = ()        # left out of whatever the others select
 
     @classmethod
-    def of(cls, sections=None, students=None) -> "Selection":
-        return cls(tuple(sections or ()), tuple(students or ()))
+    def of(cls, sections=None, students=None, exclude=None) -> "Selection":
+        return cls(tuple(sections or ()), tuple(students or ()), tuple(exclude or ()))
 
     @property
     def active(self) -> bool:
         """False means "everyone"."""
-        return bool(self.sections or self.students)
+        return bool(self.sections or self.students or self.exclude)
 
     def resolve(self, roster: Roster) -> "Resolved":
         """Specs -> IDs. Raises errors.InvalidInput when a spec matches nothing.
@@ -50,6 +52,21 @@ class Selection:
                 raise
             notes += more
             student_ids |= ids
+        if self.exclude:
+            if not (self.sections or self.students):
+                student_ids = set(roster.users)          # everyone, minus these
+            try:
+                out, more = resolve_students(roster, list(self.exclude), "--exclude")
+            except InvalidInput as exc:
+                exc.notes = notes + exc.notes
+                raise
+            notes += more
+            left_out = sorted(student_ids & out)
+            student_ids -= out
+            if left_out:
+                names = ", ".join(roster.users[u].get("sortable_name") or str(u)
+                                  for u in left_out)
+                notes.append(("warning", f"Leaving out: {names}"))
         return Resolved(student_ids, section_ids, notes, selected=student_ids)
 
     def resolve_assigned(self, canvas, roster: Roster, course_id: int,

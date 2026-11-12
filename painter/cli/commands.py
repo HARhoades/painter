@@ -29,7 +29,8 @@ CONSOLE = ConsoleReporter()
 
 
 def selection_from(args) -> Selection:
-    return Selection.of(getattr(args, "section", None), getattr(args, "student", None))
+    return Selection.of(getattr(args, "section", None), getattr(args, "student", None),
+                        getattr(args, "exclude", None))
 
 
 def select_students(roster: Roster, args) -> tuple[set[int] | None, set[int]]:

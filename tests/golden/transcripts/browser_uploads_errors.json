@@ -15,10 +15,11 @@
    "stdout": [],
    "stderr": [
     "usage: painter quiz uploads [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                            --assignment ID [--section SPEC] [--student SPEC] [--by-section]",
-    "                            [--out DIR] [--profile DIR] [--channel {chrome,msedge,chromium}]",
-    "                            [--connect URL] [--headless] [--signin-timeout SECONDS]",
-    "                            [--page-timeout SECONDS] [--delay SECONDS] [--limit N] [--dry-run]",
+    "                            --assignment ID [--section SPEC] [--student SPEC] [--exclude SPEC]",
+    "                            [--by-section] [--out DIR] [--profile DIR]",
+    "                            [--channel {chrome,msedge,chromium}] [--connect URL] [--headless]",
+    "                            [--signin-timeout SECONDS] [--page-timeout SECONDS] [--delay SECONDS]",
+    "                            [--limit N] [--dry-run]",
     "painter quiz uploads: error: the following arguments are required: --assignment"
    ],
    "requests": [],

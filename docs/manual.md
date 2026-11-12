@@ -17,7 +17,7 @@ python canvas_fetch_submissions.py <command> [options]     (the old script name)
 1. [Setup](#setup)
 2. [Commands at a glance](#commands-at-a-glance)
 3. [Options every command takes](#options-every-command-takes)
-4. [Choosing students: --section and --student](#choosing-students---section-and---student)
+4. [Choosing students: --section, --student and --exclude](#choosing-students---section---student-and---exclude)
 5. [painter list](#painter-list)
 6. [painter download](#painter-download)
 7. [painter roster](#painter-roster)
@@ -70,12 +70,13 @@ to one command and must come after it; an option a command doesn't take is an
 error. A single-valued option such as `--assignment` on `quiz export` may be
 given only once.
 
-## Choosing students: --section and --student
+## Choosing students: --section, --student and --exclude
 
 `download`, `list students`, `roster`, `quiz export` and `quiz uploads` take:
 
 - `--section SPEC` (repeatable): a section's Canvas ID, SIS section ID or name.
 - `--student SPEC` (repeatable): a student's Canvas ID, SIS user ID, login or name.
+- `--exclude SPEC` (repeatable): a student to leave out, matched like `--student`.
 
 Specs are matched in tiers, stopping at the first tier with a hit: exact ID,
 then exact name (ignoring case), then part of a name. So `A1` selects section
@@ -83,7 +84,9 @@ then exact name (ignoring case), then part of a name. So `A1` selects section
 rather than everyone named Ann. An empty spec is an error. A spec that matches
 nothing stops the run and says so.
 
-With both options, everyone in either is selected (a union). Commands that
+With both options, everyone in either is selected (a union). `--exclude` then
+removes students from that selection; on its own it means everyone except
+them. An `--exclude` that matches nobody is an error, like any other spec. Commands that
 take `--assignment` also narrow the selection to students who have that
 assignment (including "assign to" overrides).
 

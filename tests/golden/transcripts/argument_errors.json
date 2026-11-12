@@ -34,8 +34,8 @@
    "stdout": [],
    "stderr": [
     "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--out DIR]",
-    "                        [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
+    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--exclude SPEC]",
+    "                        [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
     "                        [--log-dir DIR]",
     "painter download: error: --base-url is required"
    ],
@@ -52,8 +52,8 @@
    "stdout": [],
    "stderr": [
     "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--out DIR]",
-    "                        [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
+    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--exclude SPEC]",
+    "                        [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
     "                        [--log-dir DIR]",
     "painter download: error: --course is required"
    ],
@@ -72,8 +72,8 @@
    "stdout": [],
    "stderr": [
     "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--out DIR]",
-    "                        [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
+    "                        [--assignment ID] [--section SPEC] [--student SPEC] [--exclude SPEC]",
+    "                        [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
     "                        [--log-dir DIR]",
     "painter download: error: --base-url must be an https:// address, e.g. https://yourschool.instructure.com (got 'http://canvas.test')"
    ],
@@ -132,9 +132,9 @@
    "stdout": [],
    "stderr": [
     "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                           --assignment ID [--section SPEC] [--student SPEC] [--by-section]",
-    "                           [--out DIR] [--no-answers] [--uploads] [--no-course-export]",
-    "                           [--timeout SECONDS] [--dry-run]",
+    "                           --assignment ID [--section SPEC] [--student SPEC] [--exclude SPEC]",
+    "                           [--by-section] [--out DIR] [--no-answers] [--uploads]",
+    "                           [--no-course-export] [--timeout SECONDS] [--dry-run]",
     "painter quiz export: error: --uploads needs the answers report, so not --no-answers"
    ],
    "requests": [],

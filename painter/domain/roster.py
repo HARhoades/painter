@@ -127,7 +127,8 @@ def resolve_sections(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
     return selected, notes
 
 
-def resolve_students(roster: Roster, specs: list[str]) -> tuple[set[int], list[Note]]:
+def resolve_students(roster: Roster, specs: list[str],
+                     flag: str = "--student") -> tuple[set[int], list[Note]]:
     """Turn --student specs into user IDs, failing loudly on typos.
 
     Returns (ids, notes); notes say when one spec matched several students."""
@@ -135,7 +136,7 @@ def resolve_students(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
     selected: set[int] = set()
     unmatched: list[str] = []
 
-    _reject_empty(specs, "--student")
+    _reject_empty(specs, flag)
     for spec in specs:
         hits = StudentMatcher(roster.users.values()).by_spec(spec)
         if not hits:

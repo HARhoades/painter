@@ -15,9 +15,9 @@
    "stdout": [],
    "stderr": [
     "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                           --assignment ID [--section SPEC] [--student SPEC] [--by-section]",
-    "                           [--out DIR] [--no-answers] [--uploads] [--no-course-export]",
-    "                           [--timeout SECONDS] [--dry-run]",
+    "                           --assignment ID [--section SPEC] [--student SPEC] [--exclude SPEC]",
+    "                           [--by-section] [--out DIR] [--no-answers] [--uploads]",
+    "                           [--no-course-export] [--timeout SECONDS] [--dry-run]",
     "painter quiz export: error: the following arguments are required: --assignment"
    ],
    "requests": [],
