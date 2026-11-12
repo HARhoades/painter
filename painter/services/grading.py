@@ -133,6 +133,19 @@ def _norm_comment(text: str | None) -> str:
     return " ".join((text or "").split())
 
 
+def _same_grade(a: str, b: str) -> bool:
+    """Do two grades mean the same thing? 9 and 9.0, or 90% and 90.00%,
+    compare as numbers; letter grades and EXCUSED compare as text, ignoring
+    case (review finding 17)."""
+    a, b = (a or "").strip(), (b or "").strip()
+    if a.endswith("%") == b.endswith("%"):
+        try:
+            return float(a.rstrip("%")) == float(b.rstrip("%"))
+        except ValueError:
+            pass
+    return a.casefold() == b.casefold()
+
+
 def _grade_before(sub: dict | None) -> str:
     if not sub:
         return ""
@@ -243,7 +256,7 @@ def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
 
         before = _grade_before(sub)
         if before and "posted_grade" in fields and \
-                before.casefold() != fields["posted_grade"].casefold():
+                not _same_grade(before, fields["posted_grade"]):
             warnings.append(f"replaces existing grade {before}")
 
         items.append(PlannedGrade(entry=entry, user_id=uid,

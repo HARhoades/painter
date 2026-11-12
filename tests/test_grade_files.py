@@ -171,3 +171,12 @@ def test_verify_posted():
     assert verify_posted(it, None, "points") == ["submission not found after posting"]
     bad = {"entered_grade": "8", "entered_score": 8.0, "submission_comments": []}
     assert verify_posted(it, bad, "points") == ["score is 8.0, expected 9", "comment not found"]
+
+
+def test_same_grade_compares_numbers_as_numbers():
+    """Review finding 17."""
+    from painter.services.grading import _same_grade
+    assert _same_grade("9", "9.0") and _same_grade("90%", "90.00%")
+    assert _same_grade("a-", "A-") and _same_grade("EXCUSED", "excused")
+    assert not _same_grade("9", "8.5") and not _same_grade("9", "9%")
+    assert not _same_grade("B", "B+")
