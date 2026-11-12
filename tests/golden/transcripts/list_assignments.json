@@ -1,0 +1,24 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-assignments"
+   ],
+   "exit": 0,
+   "stdout": [
+    "      7001  DATE Scenario",
+    "      7002  Reflection"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

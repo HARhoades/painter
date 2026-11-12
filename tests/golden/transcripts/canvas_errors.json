@@ -1,0 +1,49 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-sections"
+   ],
+   "exit": 4,
+   "stdout": [],
+   "stderr": [
+    "Error: Canvas refused access (403). The token's account may not have permission for this course or action.",
+    "  (403 Client Error: Error for url: https://canvas.test/api/v1/courses/100/sections)"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--roster-csv",
+    "<TMP>/r.csv"
+   ],
+   "exit": 4,
+   "stdout": [],
+   "stderr": [
+    "Error: Canvas is not answering normally (server error). Try again later.",
+    "  (503 Server Error: Error for url: https://canvas.test/api/v1/courses/100/sections)"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

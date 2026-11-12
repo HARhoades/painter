@@ -1,0 +1,39 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--roster-csv",
+    "<TMP>/r.csv",
+    "--section",
+    "A2",
+    "--assignment",
+    "7001"
+   ],
+   "exit": 0,
+   "stdout": [
+    "2 student(s), 2 line(s) -> <TMP>/r.csv"
+   ],
+   "stderr": [
+    "Sections: A2-8"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"TeacherEnrollment\", \"TaEnrollment\"]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "r.csv": [
+   "﻿Student Full Name,Student Canvas ID,Student First Name,Student Last Name,Instructor Last Name,Section Name,Section Canvas ID",
+   "Ana De La Cruz,503,Ana,De La Cruz,Smith,A2-8,12",
+   "Rick Roe,502,Rick,Roe,Smith,A2-8,12"
+  ]
+ }
+}

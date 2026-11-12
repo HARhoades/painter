@@ -1,0 +1,21 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-assignments"
+   ],
+   "exit": 1,
+   "stdout": [],
+   "stderr": [
+    "Set the CANVAS_API_TOKEN environment variable first."
+   ],
+   "requests": [],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

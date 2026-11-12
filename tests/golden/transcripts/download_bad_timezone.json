@@ -1,0 +1,22 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--tz",
+    "Mars/Olympus"
+   ],
+   "exit": "Unknown timezone 'Mars/Olympus': 'No time zone found with key Mars/Olympus'",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

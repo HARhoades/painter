@@ -1,0 +1,215 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--course",
+    "100"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --base-url is required"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --course is required (it is optional only with --post-grades)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "http://canvas.test",
+    "--course",
+    "100"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --base-url must be an https:// address, e.g. https://yourschool.instructure.com (got 'http://canvas.test')"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--export-quiz",
+    "--roster-csv",
+    "r.csv"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --roster-csv and --export-quiz cannot be combined"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "x"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --organize needs --roster FILE (make one with --roster-csv)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--quiz-uploads"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --quiz-uploads needs --export-quiz (and the answers report, so not --no-answers)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--roster",
+    "r.csv"
+   ],
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: canvas_fetch_submissions.py [-h] [--base-url BASE_URL] [--course COURSE]",
+    "                                   [--assignment ASSIGNMENT] [--out OUT] [--student SPEC]",
+    "                                   [--section SPEC] [--by-section] [--flat] [--list-assignments]",
+    "                                   [--list-students] [--list-sections] [--tz ZONE] [--no-xlsx]",
+    "                                   [--log-dir DIR] [--no-extract] [--history] [--post-grades FILE]",
+    "                                   [--dry-run] [--yes] [--allow-duplicate-comments]",
+    "                                   [--make-grade-files] [--assignment-label NAME] [--ay YY]",
+    "                                   [--term N] [--grade-file-dir DIR] [--force] [--roster-csv FILE]",
+    "                                   [--organize DIR] [--roster FILE] [--organize-to DIR]",
+    "                                   [--export-quiz] [--no-answers] [--quiz-uploads]",
+    "                                   [--browser-uploads] [--browser-profile DIR]",
+    "                                   [--browser-channel {chrome,msedge,chromium}]",
+    "                                   [--connect-browser URL] [--signin-timeout SECONDS] [--headless]",
+    "                                   [--page-timeout SECONDS] [--delay SECONDS] [--limit N]",
+    "                                   [--no-course-export] [--export-timeout SECONDS]",
+    "canvas_fetch_submissions.py: error: --roster and --organize-to are only used with --organize"
+   ],
+   "requests": [],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

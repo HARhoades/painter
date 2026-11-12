@@ -1,0 +1,138 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment",
+    "7001",
+    "--grade-file-dir",
+    "<TMP>/g"
+   ],
+   "exit": 0,
+   "stdout": [
+    "No --section given: writing a file for every section in the course.",
+    "Term 'AY27-1' -> AY27, semester 1",
+    "  <TMP>/g/A1-DATE_Grading-27-1.txt  (1 students)",
+    "  <TMP>/g/A2-DATE_Grading-27-1.txt  (2 students)",
+    "",
+    "2 file(s) written to <TMP>/g"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001",
+    "GET /api/v1/courses/100 {\"include[]\": [\"term\"]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"TeacherEnrollment\", \"TaEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment",
+    "7001",
+    "--grade-file-dir",
+    "<TMP>/g"
+   ],
+   "exit": 0,
+   "stdout": [
+    "No --section given: writing a file for every section in the course.",
+    "Term 'AY27-1' -> AY27, semester 1",
+    "  ! <TMP>/g/A1-DATE_Grading-27-1.txt exists; not overwritten (use --force)",
+    "  ! <TMP>/g/A2-DATE_Grading-27-1.txt exists; not overwritten (use --force)",
+    "",
+    "0 file(s) written to <TMP>/g"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001",
+    "GET /api/v1/courses/100 {\"include[]\": [\"term\"]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"TeacherEnrollment\", \"TaEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment",
+    "7001",
+    "--grade-file-dir",
+    "<TMP>/g",
+    "--force",
+    "--section",
+    "A1"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Term 'AY27-1' -> AY27, semester 1",
+    "  <TMP>/g/A1-DATE_Grading-27-1.txt  (1 students)",
+    "",
+    "1 file(s) written to <TMP>/g"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001",
+    "GET /api/v1/courses/100 {\"include[]\": [\"term\"]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"TeacherEnrollment\", \"TaEnrollment\"]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "g/A1-DATE_Grading-27-1.txt": [
+   "[ASSIGNMENT]",
+   "title=DATE Scenario",
+   "id=7001",
+   "",
+   "[SECTION]",
+   "title=A1-8",
+   "instructor=Rhoades",
+   "id=11",
+   "",
+   "[STUDENT]",
+   "name=Doe, Jane",
+   "id=501",
+   "grade=",
+   "comments="
+  ],
+  "g/A2-DATE_Grading-27-1.txt": [
+   "[ASSIGNMENT]",
+   "title=DATE Scenario",
+   "id=7001",
+   "",
+   "[SECTION]",
+   "title=A2-8",
+   "instructor=Smith",
+   "id=12",
+   "",
+   "[STUDENT]",
+   "name=De La Cruz, Ana",
+   "id=503",
+   "grade=",
+   "comments=",
+   "",
+   "[STUDENT]",
+   "name=Roe, Rick",
+   "id=502",
+   "grade=",
+   "comments="
+  ]
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7003",
+    "--export-quiz",
+    "--no-course-export",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": 3,
+   "stdout": [
+    "[7003] Quiz 1  (New Quiz)",
+    "  2 item(s); 1 converted to QTI",
+    "       1  true-false       TF",
+    "   !   2  ordering         Order  -- 'ordering' questions have no Classic Quizzes equivalent; kept in the JSON only",
+    "Student answers (student analysis report):",
+    "",
+    "Exported:",
+    "  <TMP>/o/Quiz-1_7003/Quiz-1_new-quiz.json  (784 bytes)",
+    "  <TMP>/o/Quiz-1_7003/Quiz-1_qti.zip  (1,799 bytes)",
+    "  <TMP>/o/Quiz-1_7003/Quiz-1_qti-report.csv  (212 bytes)",
+    "API use: 4 request(s)"
+   ],
+   "stderr": [
+    "  ! 1 item(s) are in the JSON but not the QTI; see Quiz-1_qti-report.csv",
+    "  ! student answers: Canvas accepted the student analysis report request but returned no job id ({}); not retrying"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7003",
+    "GET /api/quiz/v1/courses/100/quizzes/7003",
+    "GET /api/quiz/v1/courses/100/quizzes/7003/items",
+    "POST /api/quiz/v1/courses/100/quizzes/7003/reports"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "o/Quiz-1_7003/Quiz-1_new-quiz.json": [
+   "{",
+   "  \"exported_at\": \"<ISO>\",",
+   "  \"canvas_host\": \"https://canvas.test\",",
+   "  \"course_id\": 100,",
+   "  \"assignment_id\": 7003,",
+   "  \"assignment_name\": \"Quiz 1\",",
+   "  \"quiz\": {",
+   "    \"title\": \"Quiz 1\",",
+   "    \"quiz_settings\": {}",
+   "  },",
+   "  \"items\": [",
+   "    {",
+   "      \"id\": \"1\",",
+   "      \"position\": 1,",
+   "      \"entry_type\": \"Item\",",
+   "      \"points_possible\": 1,",
+   "      \"entry\": {",
+   "        \"title\": \"TF\",",
+   "        \"item_body\": \"<p>Sky is blue</p>\",",
+   "        \"interaction_type_slug\": \"true-false\",",
+   "        \"interaction_data\": {},",
+   "        \"scoring_data\": {",
+   "          \"value\": true",
+   "        }",
+   "      }",
+   "    },",
+   "    {",
+   "      \"id\": \"2\",",
+   "      \"position\": 2,",
+   "      \"entry_type\": \"Item\",",
+   "      \"points_possible\": 1,",
+   "      \"entry\": {",
+   "        \"title\": \"Order\",",
+   "        \"interaction_type_slug\": \"ordering\"",
+   "      }",
+   "    }",
+   "  ]",
+   "}"
+  ],
+  "o/Quiz-1_7003/Quiz-1_qti-report.csv": [
+   "﻿Position,Item ID,Entry Type,Question Type,Title,Points,In QTI,Notes",
+   "1,1,Item,true-false,TF,1,yes,",
+   "2,2,Item,ordering,Order,1,no,'ordering' questions have no Classic Quizzes equivalent; kept in the JSON only"
+  ],
+  "o/Quiz-1_7003/Quiz-1_qti.zip": {
+   "g66e2c9bb94df88d378f4697b3466aeca/assessment_meta.xml": "09ca97c197597388",
+   "g66e2c9bb94df88d378f4697b3466aeca/g66e2c9bb94df88d378f4697b3466aeca.xml": "b5667d744c82246b",
+   "imsmanifest.xml": "350705cf43446436"
+  }
+ }
+}

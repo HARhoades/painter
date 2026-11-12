@@ -1,0 +1,51 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--assignment",
+    "7001",
+    "--no-xlsx",
+    "--no-extract"
+   ],
+   "exit": 0,
+   "stdout": [
+    "",
+    "[7001] DATE Scenario  (due 2026-09-01 03:59)",
+    "  Doe-Jane_501  submitted 2026-08-31 20:00",
+    "    downloaded essay.pdf",
+    "  Roe-Rick_502  submitted 2026-09-04 03:59  [LATE +1d]",
+    "    downloaded analysis.zip",
+    "",
+    "2 file(s). Manifest: <TMP>/o/manifest.csv"
+   ],
+   "stderr": [
+    "  renamed 03_DATE-Scenario/ -> DATE-Scenario_7001/ (folders are now named by assignment ID)"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}",
+    "GET /f/1",
+    "GET /f/2"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "o/DATE-Scenario_7001/Doe-Jane_501/essay.pdf": "133a886b08c03607",
+  "o/DATE-Scenario_7001/Roe-Rick_502/analysis.zip": {
+   "data/in.txt": "1def07dbe06eeb09",
+   "main.py": "caf026f25d714020"
+  },
+  "o/manifest.csv": [
+   "﻿assignment,assignment_id,student,user_id,section,all_sections,due_at,due_source,submitted_at,attempt,late,late_by,late_policy_status,missing,graded_at,score,workflow_state,filename,status,path,extracted_to",
+   "DATE Scenario,7001,\"Doe, Jane\",501,,,2026-09-01 03:59,everyone,2026-08-31 20:00,1,False,,,False,,,submitted,essay.pdf,downloaded,<TMP>/o/DATE-Scenario_7001/Doe-Jane_501/essay.pdf,",
+   "DATE Scenario,7001,\"Roe, Rick\",502,,,2026-09-01 03:59,everyone,2026-09-04 03:59,2,True,1d,,False,,,submitted,analysis.zip,downloaded,<TMP>/o/DATE-Scenario_7001/Roe-Rick_502/analysis.zip,"
+  ]
+ }
+}

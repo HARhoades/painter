@@ -1,0 +1,100 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--grade-file-dir",
+    "<TMP>/g"
+   ],
+   "exit": "Without --assignment, pass --assignment-label NAME for the filename, e.g. --assignment-label DATE.",
+   "stdout": [
+    "No --section given: writing a file for every section in the course."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment",
+    "7001",
+    "--assignment",
+    "7002",
+    "--grade-file-dir",
+    "<TMP>/g"
+   ],
+   "exit": "--make-grade-files takes at most one --assignment.",
+   "stdout": [
+    "No --section given: writing a file for every section in the course."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment",
+    "9999",
+    "--grade-file-dir",
+    "<TMP>/g"
+   ],
+   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999).",
+   "stdout": [
+    "No --section given: writing a file for every section in the course."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/9999"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment",
+    "7001",
+    "--grade-file-dir",
+    "<TMP>/g"
+   ],
+   "exit": "Could not read an academic year and semester from the course term name 'Fall'. Pass --ay and --term, e.g. --ay 27 --term 1.",
+   "stdout": [
+    "No --section given: writing a file for every section in the course."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001",
+    "GET /api/v1/courses/100 {\"include[]\": [\"term\"]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

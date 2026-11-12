@@ -1,0 +1,128 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/DATE-Scenario_7001",
+    "--roster",
+    "<TMP>/roster.csv",
+    "--dry-run"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Dry run: Move <TMP>/DATE-Scenario_7001 -> <TMP>/DATE-Scenario_7001 into 2 section folder(s)",
+    "  Doe-Jane_501 -> A1-8/Doe-Jane_501",
+    "  Roe-Rick_502 -> A2-8/Roe-Rick_502",
+    "",
+    "  A1-8                    1 item(s)",
+    "  A2-8                    1 item(s)"
+   ],
+   "stderr": [
+    "",
+    "1 item(s) not matched to the roster, left in place:",
+    "  Stranger_999  (no roster match)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/DATE-Scenario_7001",
+    "--roster",
+    "<TMP>/roster.csv",
+    "--organize-to",
+    "<TMP>/copy"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Copy <TMP>/DATE-Scenario_7001 -> <TMP>/copy into 2 section folder(s)",
+    "  Doe-Jane_501 -> A1-8/Doe-Jane_501",
+    "  Roe-Rick_502 -> A2-8/Roe-Rick_502",
+    "",
+    "  A1-8                    1 item(s)",
+    "  A2-8                    1 item(s)",
+    "",
+    "Log: <TMP>/copy/organize_log_<TS>.csv"
+   ],
+   "stderr": [
+    "",
+    "1 item(s) not matched to the roster, left in place:",
+    "  Stranger_999  (no roster match)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/DATE-Scenario_7001",
+    "--roster",
+    "<TMP>/roster.csv"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Move <TMP>/DATE-Scenario_7001 -> <TMP>/DATE-Scenario_7001 into 2 section folder(s)",
+    "  Doe-Jane_501 -> A1-8/Doe-Jane_501",
+    "  Roe-Rick_502 -> A2-8/Roe-Rick_502",
+    "",
+    "  A1-8                    1 item(s)",
+    "  A2-8                    1 item(s)",
+    "",
+    "Log: <TMP>/DATE-Scenario_7001/organize_log_<TS>.csv"
+   ],
+   "stderr": [
+    "",
+    "1 item(s) not matched to the roster, left in place:",
+    "  Stranger_999  (no roster match)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/DATE-Scenario_7001",
+    "--roster",
+    "<TMP>/roster.csv"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Move <TMP>/DATE-Scenario_7001 -> <TMP>/DATE-Scenario_7001 into 2 section folder(s)",
+    "",
+    "  A1-8                    0 item(s)",
+    "  A2-8                    0 item(s)",
+    "",
+    "Log: <TMP>/DATE-Scenario_7001/organize_log_<TS>.csv"
+   ],
+   "stderr": [
+    "",
+    "1 item(s) not matched to the roster, left in place:",
+    "  Stranger_999  (no roster match)"
+   ],
+   "requests": [],
+   "posted": []
+  }
+ ],
+ "files": {
+  "DATE-Scenario_7001/A1-8/Doe-Jane_501/essay.pdf": "2d711642b726b044",
+  "DATE-Scenario_7001/organize_log_<TS>.csv": [
+   "﻿Item,Student,Student Canvas ID,Section,Destination,Matched By,Result",
+   "Stranger_999,,,,,,left in place: no roster match"
+  ],
+  "copy/A1-8/Doe-Jane_501/essay.pdf": "2d711642b726b044",
+  "copy/organize_log_<TS>.csv": [
+   "﻿Item,Student,Student Canvas ID,Section,Destination,Matched By,Result",
+   "Doe-Jane_501,Jane Doe,501,A1-8,<TMP>/copy/A1-8/Doe-Jane_501,id,copyd",
+   "Roe-Rick_502,Rick Roe,502,A2-8,<TMP>/copy/A2-8/Roe-Rick_502,id,copyd",
+   "Stranger_999,,,,,,left in place: no roster match"
+  ],
+  "roster.csv": [
+   "﻿Student Full Name,Student Canvas ID,Student First Name,Student Last Name,Section Name,Section Canvas ID",
+   "Jane Doe,501,Jane,Doe,A1-8,11",
+   "Jane Doe,501,Jane,Doe,AI105 All,10",
+   "Rick Roe,502,Rick,Roe,A2-8,12",
+   "Rick Roe,502,Rick,Roe,AI105 All,10"
+  ]
+ }
+}

@@ -1,0 +1,51 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--student",
+    "jdoe2",
+    "--history",
+    "--no-xlsx"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Filtering to 1 student(s).",
+    "",
+    "[7001] DATE Scenario  (due 2026-09-01 03:59)",
+    "  Doe-Jane_501  submitted 2026-08-31 20:00",
+    "    downloaded essay__a1.pdf",
+    "    downloaded essay__a3.pdf",
+    "",
+    "[7002] Reflection  (due no due date)",
+    "",
+    "2 file(s). Manifest: <TMP>/o/manifest.csv"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"include[]\": [\"user\", \"submission_history\"], \"per_page\": [100]}",
+    "GET /f/1",
+    "GET /f/3",
+    "GET /api/v1/courses/100/assignments/7002/submissions {\"include[]\": [\"user\", \"submission_history\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "o/DATE-Scenario_7001/Doe-Jane_501/essay__a1.pdf": "133a886b08c03607",
+  "o/DATE-Scenario_7001/Doe-Jane_501/essay__a3.pdf": "7743ce348d9284d6",
+  "o/manifest.csv": [
+   "﻿assignment,assignment_id,student,user_id,section,all_sections,due_at,due_source,submitted_at,attempt,late,late_by,late_policy_status,missing,graded_at,score,workflow_state,filename,status,path,extracted_to",
+   "DATE Scenario,7001,\"Doe, Jane\",501,A1-8,A1-8,2026-09-01 03:59,everyone,2026-08-31 20:00,1,False,,,False,,,submitted,essay__a1.pdf,downloaded,<TMP>/o/DATE-Scenario_7001/Doe-Jane_501/essay__a1.pdf,",
+   "DATE Scenario,7001,\"Doe, Jane\",501,A1-8,A1-8,2026-09-01 03:59,everyone,2026-08-31 20:00,1,False,,,False,,,submitted,essay__a3.pdf,downloaded,<TMP>/o/DATE-Scenario_7001/Doe-Jane_501/essay__a3.pdf,"
+  ]
+ }
+}

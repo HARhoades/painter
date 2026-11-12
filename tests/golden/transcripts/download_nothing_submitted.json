@@ -1,0 +1,31 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--assignment",
+    "7002",
+    "--no-xlsx"
+   ],
+   "exit": 0,
+   "stdout": [
+    "",
+    "[7002] Reflection  (due no due date)",
+    "",
+    "No submission files found."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7002/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

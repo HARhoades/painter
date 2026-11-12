@@ -1,0 +1,96 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/s",
+    "--roster",
+    "<TMP>/roster.csv",
+    "--section",
+    "A1",
+    "--dry-run"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Dry run: Move <TMP>/s -> <TMP>/s into 1 section folder(s)",
+    "  Doe-Jane_501 -> A1-8/Doe-Jane_501",
+    "",
+    "  A1-8                    1 item(s)"
+   ],
+   "stderr": [
+    "",
+    "2 item(s) not matched to the roster, left in place:",
+    "  Roe-Rick_502  (student not in the selected --section)",
+    "  Stranger_999  (no roster match)"
+   ],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/s",
+    "--roster",
+    "<TMP>/roster.csv",
+    "--section",
+    "zzz"
+   ],
+   "exit": "--section 'zzz' matches no section in the roster",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/s",
+    "--roster",
+    "<TMP>/roster.csv",
+    "--organize-to",
+    "<TMP>/s/in"
+   ],
+   "exit": "--organize-to can't be inside the folder being organized",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/nope",
+    "--roster",
+    "<TMP>/roster.csv"
+   ],
+   "exit": "--organize: <TMP>/nope is not a folder",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--organize",
+    "<TMP>/s",
+    "--roster",
+    "<TMP>/no-roster.csv"
+   ],
+   "exit": "Can't read roster <TMP>/no-roster.csv: [Errno 2] No such file or directory: '<TMP>/no-roster.csv'",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  }
+ ],
+ "files": {
+  "roster.csv": [
+   "﻿Student Full Name,Student Canvas ID,Student First Name,Student Last Name,Section Name,Section Canvas ID",
+   "Jane Doe,501,Jane,Doe,A1-8,11",
+   "Jane Doe,501,Jane,Doe,AI105 All,10",
+   "Rick Roe,502,Rick,Roe,A2-8,12",
+   "Rick Roe,502,Rick,Roe,AI105 All,10"
+  ],
+  "s/Doe-Jane_501/essay.pdf": "2d711642b726b044"
+ }
+}

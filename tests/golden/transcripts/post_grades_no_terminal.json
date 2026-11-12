@@ -1,0 +1,59 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--post-grades",
+    "<TMP>/A2-DATE_Grading-27-1.txt"
+   ],
+   "exit": 1,
+   "stdout": [
+    "",
+    "A2-DATE_Grading-27-1.txt  (course 100)",
+    "  Assignment 7001  DATE Scenario  (points, out of 10)",
+    "  Section    12  A2-8  instructor Smith",
+    "    Roe, Rick (502):  grade - -> 8.5   comment already on Canvas, not re-sent",
+    "    De La Cruz, Ana (503):  grade - -> EXCUSED   comment 'Excused for the field exercise.'",
+    "  2 student(s) to update"
+   ],
+   "stderr": [
+    "",
+    "Not posting without confirmation; rerun with --yes."
+   ],
+   "requests": [
+    "GET /api/v1/sections/12",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"include[]\": [\"submission_comments\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "A2-DATE_Grading-27-1.txt": [
+   "[ASSIGNMENT]",
+   "title=DATE Scenario",
+   "id=7001",
+   "",
+   "[SECTION]",
+   "title=A2-8",
+   "instructor=Smith",
+   "id=12",
+   "",
+   "[STUDENT]",
+   "name=Roe, Rick",
+   "id=502",
+   "grade=8.5",
+   "comments=Already said this.",
+   "",
+   "[STUDENT]",
+   "name=De La Cruz, Ana",
+   "id=",
+   "grade=EX",
+   "comments=Excused for",
+   "  the field exercise."
+  ]
+ }
+}

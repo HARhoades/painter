@@ -1,0 +1,29 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7004",
+    "--export-quiz",
+    "--dry-run",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": 0,
+   "stdout": [
+    "[7004] Old Quiz  (Classic Quiz)",
+    "Dry run: would export Classic quiz 44 as QTI to <TMP>/o/Old-Quiz_7004"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7004"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

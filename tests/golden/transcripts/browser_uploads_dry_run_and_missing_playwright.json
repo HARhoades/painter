@@ -1,0 +1,66 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7003",
+    "--browser-uploads",
+    "--dry-run",
+    "--by-section",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": 0,
+   "stdout": [
+    "[7003] Quiz 1  (New Quiz)",
+    "3 submitted student(s) to visit.",
+    "  <TMP>/o/Quiz-1_7003/A2-8/Quiz-1_uploads/De-La-Cruz-Ana_503   quiz session 5030",
+    "  <TMP>/o/Quiz-1_7003/A1-8/Quiz-1_uploads/Doe-Jane_501   quiz session 5010",
+    "  <TMP>/o/Quiz-1_7003/A2-8/Quiz-1_uploads/Roe-Rick_502   quiz session 5020",
+    "Dry run: no browser opened, nothing downloaded."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7003",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7003/submissions {\"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7003/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7003",
+    "--browser-uploads",
+    "--limit",
+    "1",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": "Playwright is not installed: pip install playwright (then 'playwright install chromium' if you use --browser-channel chromium).",
+   "stdout": [
+    "[7003] Quiz 1  (New Quiz)",
+    "1 submitted student(s) to visit."
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7003",
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7003/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

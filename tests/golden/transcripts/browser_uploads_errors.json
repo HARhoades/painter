@@ -1,0 +1,41 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--browser-uploads",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": "--browser-uploads needs exactly one --assignment (the quiz's assignment ID).",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7001",
+    "--browser-uploads",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": "Assignment 7001 (DATE Scenario) is not a New Quiz; use a normal download run instead.",
+   "stdout": [],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7001"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

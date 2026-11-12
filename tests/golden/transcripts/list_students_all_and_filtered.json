@@ -1,0 +1,79 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-students"
+   ],
+   "exit": 0,
+   "stdout": [
+    "       503  adelacruz         De La Cruz, Ana                   A2-8",
+    "       501  S501              Doe, Jane                         A1-8",
+    "       502  S502              Roe, Rick                         A2-8"
+   ],
+   "stderr": [
+    "3 student(s)"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-students",
+    "--section",
+    "A2"
+   ],
+   "exit": 0,
+   "stdout": [
+    "       503  adelacruz         De La Cruz, Ana                   A2-8",
+    "       502  S502              Roe, Rick                         A2-8"
+   ],
+   "stderr": [
+    "Sections: A2-8",
+    "2 student(s) of 3 in the course"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-students",
+    "--student",
+    "Doe",
+    "--assignment",
+    "7001"
+   ],
+   "exit": 0,
+   "stdout": [
+    "       501  S501              Doe, Jane                         A1-8"
+   ],
+   "stderr": [
+    "1 student(s) of 3 in the course"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

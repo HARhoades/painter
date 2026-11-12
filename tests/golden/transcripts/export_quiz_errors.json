@@ -1,0 +1,61 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--export-quiz",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": "--export-quiz needs exactly one --assignment (the quiz's assignment ID; see --list-assignments).",
+   "stdout": [],
+   "stderr": [],
+   "requests": [],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7001",
+    "--export-quiz",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": "Assignment 7001 (DATE Scenario) is not a quiz.",
+   "stdout": [],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7001"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "9999",
+    "--export-quiz",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999).",
+   "stdout": [],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/9999"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

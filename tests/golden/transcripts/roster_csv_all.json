@@ -1,0 +1,33 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--roster-csv",
+    "<TMP>/roster.csv"
+   ],
+   "exit": 0,
+   "stdout": [
+    "3 student(s), 3 line(s) -> <TMP>/roster.csv"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"TeacherEnrollment\", \"TaEnrollment\"]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "roster.csv": [
+   "﻿Student Full Name,Student Canvas ID,Student First Name,Student Last Name,Instructor Last Name,Section Name,Section Canvas ID",
+   "Ana De La Cruz,503,Ana,De La Cruz,Smith,A2-8,12",
+   "Jane Doe,501,Jane,Doe,Rhoades,A1-8,11",
+   "Rick Roe,502,Rick,Roe,Smith,A2-8,12"
+  ]
+ }
+}

@@ -1,0 +1,35 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--assignment",
+    "7003",
+    "--no-xlsx"
+   ],
+   "exit": 0,
+   "stdout": [
+    "",
+    "[7003] Quiz 1  (due no due date)  [New Quiz]",
+    "  3 submitted, but New Quizzes keeps File Upload answers inside the quiz tool, not on the Canvas submission, so there are no attachments to download here.",
+    "",
+    "New Quiz file uploads can't be fetched with the Submissions API. To try pulling them from the quiz's answers report instead, run:",
+    "  --course 100 --assignment 7003 --export-quiz --quiz-uploads --no-course-export",
+    "",
+    "No submission files found. (New Quizzes skipped for the reason above.)"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7003/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

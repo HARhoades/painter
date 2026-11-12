@@ -1,0 +1,55 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--no-xlsx"
+   ],
+   "exit": 1,
+   "stdout": [
+    "",
+    "[7001] DATE Scenario  (due 2026-09-01 03:59)",
+    "  Doe-Jane_501  submitted 2026-08-31 20:00",
+    "    ! failed essay.pdf: 404 Client Error: Error for url: https://files.test/f/1",
+    "  Roe-Rick_502  submitted 2026-09-04 03:59  [LATE +1d]",
+    "    downloaded analysis.zip",
+    "      extracted -> analysis/",
+    "",
+    "[7002] Reflection  (due no due date)",
+    "",
+    "2 file(s). Manifest: <TMP>/o/manifest.csv"
+   ],
+   "stderr": [
+    "1 file(s) could not be downloaded; they are listed in the manifest with status 'failed'."
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}",
+    "GET /f/1",
+    "GET /f/2",
+    "GET /api/v1/courses/100/assignments/7002/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "o/DATE-Scenario_7001/Roe-Rick_502/analysis/data/in.txt": [
+   "1 2 3"
+  ],
+  "o/DATE-Scenario_7001/Roe-Rick_502/analysis/main.py": "caf026f25d714020",
+  "o/DATE-Scenario_7001/Roe-Rick_502/analysis.zip": {
+   "data/in.txt": "1def07dbe06eeb09",
+   "main.py": "caf026f25d714020"
+  },
+  "o/manifest.csv": [
+   "﻿assignment,assignment_id,student,user_id,section,all_sections,due_at,due_source,submitted_at,attempt,late,late_by,late_policy_status,missing,graded_at,score,workflow_state,filename,status,path,extracted_to",
+   "DATE Scenario,7001,\"Doe, Jane\",501,,,2026-09-01 03:59,everyone,2026-08-31 20:00,1,False,,,False,,,submitted,essay.pdf,failed: 404 Client Error: Error for url: https://files.test/f/1,<TMP>/o/DATE-Scenario_7001/Doe-Jane_501/essay.pdf,",
+   "DATE Scenario,7001,\"Roe, Rick\",502,,,2026-09-01 03:59,everyone,2026-09-04 03:59,2,True,1d,,False,,,submitted,analysis.zip,downloaded,<TMP>/o/DATE-Scenario_7001/Roe-Rick_502/analysis.zip,<TMP>/o/DATE-Scenario_7001/Roe-Rick_502/analysis"
+  ]
+ }
+}

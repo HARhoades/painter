@@ -1,0 +1,25 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": 4,
+   "stdout": [],
+   "stderr": [
+    "Error: Canvas rejected the API token (401). Check that CANVAS_API_TOKEN holds a current token for this Canvas address.",
+    "  (401 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments)"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

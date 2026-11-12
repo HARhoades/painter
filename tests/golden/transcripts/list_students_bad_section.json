@@ -1,0 +1,43 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-students",
+    "--section",
+    "nope"
+   ],
+   "exit": "No section match for: 'nope'\nRun with --list-sections to see valid IDs and names.",
+   "stdout": [],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
+   ],
+   "posted": []
+  },
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--list-students",
+    "--section",
+    ""
+   ],
+   "exit": "--section needs a value; an empty one would match everything.",
+   "stdout": [],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

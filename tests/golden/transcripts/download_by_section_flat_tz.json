@@ -1,0 +1,55 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--out",
+    "<TMP>/o",
+    "--assignment",
+    "7001",
+    "--section",
+    "A2",
+    "--by-section",
+    "--flat",
+    "--no-extract",
+    "--no-xlsx",
+    "--tz",
+    "America/New_York"
+   ],
+   "exit": 0,
+   "stdout": [
+    "Filtering to 2 student(s).",
+    "",
+    "[7001] DATE Scenario  (due 2026-08-31 23:59)",
+    "  A2-8/Roe-Rick_502  submitted 2026-09-03 23:59  [LATE +1d]",
+    "    downloaded Roe-Rick_502__analysis.zip",
+    "",
+    "1 file(s). Manifest: <TMP>/o/manifest.csv"
+   ],
+   "stderr": [
+    "Sections: A2-8"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/assignments {\"include[]\": [\"all_dates\", \"overrides\"], \"order_by\": [\"position\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/assignments/7001/submissions {\"include[]\": [\"user\"], \"per_page\": [100]}",
+    "GET /f/2"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "o/DATE-Scenario_7001/A2-8/Roe-Rick_502__analysis.zip": {
+   "data/in.txt": "1def07dbe06eeb09",
+   "main.py": "caf026f25d714020"
+  },
+  "o/manifest.csv": [
+   "﻿assignment,assignment_id,student,user_id,section,all_sections,due_at,due_source,submitted_at,attempt,late,late_by,late_policy_status,missing,graded_at,score,workflow_state,filename,status,path,extracted_to",
+   "DATE Scenario,7001,\"Roe, Rick\",502,A2-8,A2-8,2026-09-02 23:59,section override,2026-09-03 23:59,2,True,1d,,False,,,submitted,Roe-Rick_502__analysis.zip,downloaded,<TMP>/o/DATE-Scenario_7001/A2-8/Roe-Rick_502__analysis.zip,"
+  ]
+ }
+}

@@ -1,0 +1,35 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7003",
+    "--export-quiz",
+    "--dry-run",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": 0,
+   "stdout": [
+    "[7003] Quiz 1  (New Quiz)",
+    "  2 item(s); 1 converted to QTI",
+    "       1  true-false       TF",
+    "   !   2  ordering         Order  -- 'ordering' questions have no Classic Quizzes equivalent; kept in the JSON only",
+    "Dry run: nothing written, did not request the student analysis report or start a course export.",
+    "Output folder(s): <TMP>/o/Quiz-1_7003"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7003",
+    "GET /api/quiz/v1/courses/100/quizzes/7003",
+    "GET /api/quiz/v1/courses/100/quizzes/7003/items"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {}
+}

@@ -1,0 +1,76 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--make-grade-files",
+    "--assignment-label",
+    "DATE",
+    "--grade-file-dir",
+    "<TMP>/g",
+    "--ay",
+    "2027",
+    "--term",
+    "2"
+   ],
+   "exit": 0,
+   "stdout": [
+    "No --section given: writing a file for every section in the course.",
+    "  <TMP>/g/A1-DATE_Grading-27-2.txt  (1 students)",
+    "  <TMP>/g/A2-DATE_Grading-27-2.txt  (2 students)",
+    "",
+    "2 file(s) written to <TMP>/g"
+   ],
+   "stderr": [],
+   "requests": [
+    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}",
+    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"TeacherEnrollment\", \"TaEnrollment\"]}"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "g/A1-DATE_Grading-27-2.txt": [
+   "[ASSIGNMENT]",
+   "title=",
+   "id=",
+   "",
+   "[SECTION]",
+   "title=A1-8",
+   "instructor=Rhoades",
+   "id=11",
+   "",
+   "[STUDENT]",
+   "name=Doe, Jane",
+   "id=501",
+   "grade=",
+   "comments="
+  ],
+  "g/A2-DATE_Grading-27-2.txt": [
+   "[ASSIGNMENT]",
+   "title=",
+   "id=",
+   "",
+   "[SECTION]",
+   "title=A2-8",
+   "instructor=Smith",
+   "id=12",
+   "",
+   "[STUDENT]",
+   "name=De La Cruz, Ana",
+   "id=503",
+   "grade=",
+   "comments=",
+   "",
+   "[STUDENT]",
+   "name=Roe, Rick",
+   "id=502",
+   "grade=",
+   "comments="
+  ]
+ }
+}
