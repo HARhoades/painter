@@ -7,9 +7,9 @@ from pathlib import Path
 import re
 import shutil
 
-from painter.domain.matching import _letters
+from painter.domain.matching import best_matches, letters_key
 from painter.domain.naming import slug
-from painter.domain.roster import best_matches, catch_all_sections
+from painter.domain.roster import catch_all_sections
 from painter.errors import Cancelled, InvalidInput
 from painter.events import NULL, Reporter
 from painter.storage.tabular import read_records, write_csv
@@ -85,7 +85,7 @@ class RosterIndex:
             first = r.get("Student First Name", "")
             last = r.get("Student Last Name", "")
             full = r.get("Student Full Name", "")
-            for key in {_letters(last + first), _letters(first + last), _letters(full)}:
+            for key in {letters_key(last + first), letters_key(first + last), letters_key(full)}:
                 if key:
                     self.by_name.setdefault(key, set()).add(uid)
 
@@ -109,7 +109,7 @@ class RosterIndex:
         if len(hits) > 1:
             return None, "several roster IDs in the name"
         # 3. The name alone, with the ID and any extras stripped.
-        key = _letters(re.split(r"_\d", stem, maxsplit=1)[0])
+        key = letters_key(re.split(r"_\d", stem, maxsplit=1)[0])
         uids = self.by_name.get(key, set())
         if len(uids) == 1:
             return next(iter(uids)), "name"

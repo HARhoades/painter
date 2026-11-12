@@ -18,7 +18,7 @@ from painter.errors import (
 )
 from painter.events import NULL, Reporter
 from painter.domain.assignments import quiz_kind
-from painter.domain.matching import name_matches
+from painter.domain.matching import same_words
 from painter.domain.naming import safe_filename, slug, student_folder_name
 from painter.domain.roster import Roster
 from painter.services.quiz_plan import (
@@ -435,7 +435,7 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
                             "failed: quiz results did not load"})
                 continue
             name_seen = captured[got].get("name")
-            if not sess and name_seen and not name_matches(name_seen, roster.users[uid]):
+            if not sess and name_seen and not same_words(name_seen, roster.users[uid]):
                 failed += 1
                 reporter.info(f"  ! loaded quiz belongs to {name_seen!r}; skipped")
                 log.append({"student_folder": who, "user_id": uid, "quiz_session": got,

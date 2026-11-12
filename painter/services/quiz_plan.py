@@ -8,7 +8,7 @@ from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
 from painter.events import NULL, Reporter, emit
 from painter.domain.assignments import assignment_folder
-from painter.domain.matching import _letters
+from painter.domain.matching import StudentMatcher
 from painter.domain.naming import slug
 from painter.domain.roster import Roster, assigned_students
 
@@ -66,21 +66,7 @@ def find_student_column(header: list[str], rows: list[list[str]],
     roster best -- Canvas user IDs first, then SIS IDs, logins, and finally
     names. Returns (column index, what it matched, value -> user id).
     """
-    users = roster.users.values()
-    by_name: dict[str, set[int]] = {}
-    for u in users:
-        for n in (u.get("name"), u.get("sortable_name")):
-            if _letters(n):
-                by_name.setdefault(_letters(n), set()).add(u["id"])
-    lookups = [
-        ("Canvas user ID", {str(u["id"]): u["id"] for u in users}, str.strip),
-        ("SIS user ID", {str(u["sis_user_id"]): u["id"] for u in users
-                         if u.get("sis_user_id")}, str.strip),
-        ("login", {str(u["login_id"]).casefold(): u["id"] for u in users
-                   if u.get("login_id")}, lambda v: v.strip().casefold()),
-        ("name", {k: next(iter(v)) for k, v in by_name.items() if len(v) == 1},
-         _letters),
-    ]
+    lookups = StudentMatcher(roster.users.values()).value_lookups()
     hinted = ("id", "user", "student", "name", "login", "sis")
     for kind, mapping, norm in lookups:
         best = None

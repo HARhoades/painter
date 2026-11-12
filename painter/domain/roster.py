@@ -4,6 +4,10 @@ from __future__ import annotations
 from painter.canvas.client import Canvas
 from painter.errors import InvalidInput, NotFound
 from painter.events import Note
+from painter.domain.matching import (  # noqa: F401  (match_* re-exported)
+    StudentMatcher, best_matches, match_section, match_student, section_ids,
+    section_names,
+)
 
 
 # --------------------------------------------------------------------------
@@ -90,67 +94,9 @@ class Roster:
         return self.section_by_id.get(ranked[0])
 
 
-# Spec matching runs in tiers and stops at the first tier with any hit, so an
-# exact ID never also pulls in sections whose names merely contain it, and
-# "A1" picks section "A1" over "A1-8" and "A10-3" (review finding 10).
-EXACT_ID, EXACT_NAME, PARTIAL_NAME = 0, 1, 2
-
-
-def match_tier(spec: str, ids, names) -> int | None:
-    """How well spec identifies something with these ids and names, or None."""
-    spec = spec.strip()
-    if not spec:
-        return None
-    if spec in {str(i) for i in ids if i not in (None, "")}:
-        return EXACT_ID
-    folded = spec.casefold()
-    names = [n for n in names if n]
-    if any(folded == n.casefold() for n in names):
-        return EXACT_NAME
-    if any(folded in n.casefold() for n in names):
-        return PARTIAL_NAME
-    return None
-
-
-def best_matches(spec: str, items, ids_of, names_of) -> list:
-    """The items in the best tier that spec reaches (empty if none)."""
-    tiers = {}
-    for item in items:
-        t = match_tier(spec, ids_of(item), names_of(item))
-        if t is not None:
-            tiers.setdefault(t, []).append(item)
-    return tiers[min(tiers)] if tiers else []
-
-
-def _section_ids(s: dict):
-    return (s.get("id"), s.get("sis_section_id"))
-
-
-def _section_names(s: dict):
-    return (s.get("name"),)
-
-
-def _student_ids(u: dict):
-    return (u.get("id"), u.get("sis_user_id"), u.get("login_id"))
-
-
-def _student_names(u: dict):
-    return (u.get("name"), u.get("sortable_name"))
-
-
 def _reject_empty(specs: list[str], flag: str) -> None:
     if any(not (s or "").strip() for s in specs):
         raise InvalidInput(f"{flag} needs a value; an empty one would match everything.")
-
-
-def match_section(spec: str, section: dict) -> bool:
-    """Does one --section spec identify this section?
-
-    Exact match on Canvas section ID or SIS section ID, otherwise a
-    case-insensitive substring match on the section name. Section names are
-    not unique in Canvas, so ID matching is checked first.
-    """
-    return match_tier(spec, _section_ids(section), _section_names(section)) is not None
 
 
 def resolve_sections(roster: Roster, specs: list[str]) -> tuple[set[int], list[Note]]:
@@ -163,7 +109,7 @@ def resolve_sections(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
 
     _reject_empty(specs, "--section")
     for spec in specs:
-        hits = best_matches(spec, roster.sections, _section_ids, _section_names)
+        hits = best_matches(spec, roster.sections, section_ids, section_names)
         if not hits:
             unmatched.append(spec)
             continue
@@ -181,15 +127,6 @@ def resolve_sections(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
     return selected, notes
 
 
-def match_student(spec: str, user: dict) -> bool:
-    """Does one --student spec identify this roster entry?
-
-    Exact match on Canvas ID / SIS ID / login, otherwise a case-insensitive
-    substring match on either form of the name.
-    """
-    return match_tier(spec, _student_ids(user), _student_names(user)) is not None
-
-
 def resolve_students(roster: Roster, specs: list[str]) -> tuple[set[int], list[Note]]:
     """Turn --student specs into user IDs, failing loudly on typos.
 
@@ -200,7 +137,7 @@ def resolve_students(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
 
     _reject_empty(specs, "--student")
     for spec in specs:
-        hits = best_matches(spec, roster.users.values(), _student_ids, _student_names)
+        hits = StudentMatcher(roster.users.values()).by_spec(spec)
         if not hits:
             unmatched.append(spec)
             continue

@@ -87,3 +87,36 @@ def test_a4_student_folder_name_has_one_definition():
     assert student_folder_name(501, u) == "Doe-Jane_501"
     assert student_dir_name({"user_id": 501, "user": u}) == "Doe-Jane_501"
     assert student_folder_name(7, None) == "Anonymous_7"
+
+
+def test_a5_a7_matching_rules_live_in_matching():
+    """SIS IDs and logins are read only where users are built (roster), matched
+    (matching) or displayed (cli); the rules are defined only in matching."""
+    assert where(['"sis_user_id"'], strings=True) <= {
+        "domain/roster.py", "domain/matching.py", "cli/commands.py"}
+    assert where(['"login_id"'], strings=True) <= {
+        "domain/roster.py", "domain/matching.py", "cli/commands.py"}
+    import ast
+    rules = {"letters_key", "name_words", "same_words", "name_contains",
+             "match_tier", "best_matches", "match_section", "match_student"}
+    defined = {}
+    for path in PKG.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.FunctionDef) and node.name in rules:
+                defined.setdefault(node.name, set()).add(path.relative_to(PKG).as_posix())
+    assert defined == {r: {"domain/matching.py"} for r in rules}
+
+
+def test_student_matcher():
+    from painter.domain.matching import StudentMatcher
+    users = [{"id": 501, "name": "Jane Doe", "sortable_name": "Doe, Jane",
+              "sis_user_id": "S501", "login_id": "jdoe2"},
+             {"id": 502, "name": "Jane Doeson", "sortable_name": "Doeson, Jane"}]
+    m = StudentMatcher(users)
+    assert [u["id"] for u in m.by_id("S501")] == [501]
+    assert [u["id"] for u in m.by_id("jdoe2")] == [501] and m.by_id("") == []
+    assert [u["id"] for u in m.by_spec("Jane Doe")] == [501]      # exact beats partial
+    assert [u["id"] for u in m.by_spec("doe")] == [501, 502]
+    assert [u["id"] for u in m.by_words("doe jane")] == [501]
+    kinds = [k for k, _, _ in m.value_lookups()]
+    assert kinds == ["Canvas user ID", "SIS user ID", "login", "name"]

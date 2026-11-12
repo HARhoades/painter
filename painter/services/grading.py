@@ -11,7 +11,7 @@ import requests
 from painter.canvas.client import Canvas
 from painter.errors import Cancelled, InvalidInput, NotFound
 from painter.events import NULL, Reporter
-from painter.domain.matching import name_matches
+from painter.domain.matching import StudentMatcher, same_words
 from painter.domain.roster import Roster
 from painter.services.grade_files import (
     GradeEntry, GradeFile, GradeFileError, parse_grade_file,
@@ -56,22 +56,20 @@ def resolve_grade_entry(roster: Roster, entry: GradeEntry,
     def label(u: dict) -> str:
         return f"{u.get('sortable_name') or u.get('name')} ({u['id']})"
 
+    students = StudentMatcher(roster.users.values())
     if entry.id:
-        hits = [u for u in roster.users.values()
-                if entry.id in {str(u.get("id", "")),
-                                str(u.get("sis_user_id") or ""),
-                                str(u.get("login_id") or "")}]
+        hits = students.by_id(entry.id)
         if not hits:
             raise LookupError(f"no student in the course has id {entry.id}")
         if len(hits) > 1:
             raise LookupError(f"id {entry.id} matches several students: "
                               + ", ".join(label(u) for u in hits))
         user = hits[0]
-        if entry.name and not name_matches(entry.name, user):
+        if entry.name and not same_words(entry.name, user):
             raise LookupError(f"id {entry.id} is {label(user)}, not {entry.name!r}")
         return user
 
-    hits = [u for u in roster.users.values() if name_matches(entry.name, u)]
+    hits = students.by_words(entry.name)
     if len(hits) > 1 and section_id:
         in_section = [u for u in hits
                       if section_id in roster.sections_of_user.get(u["id"], [])]
