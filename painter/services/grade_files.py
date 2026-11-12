@@ -9,7 +9,7 @@ from painter.canvas.client import Canvas
 from painter.domain.naming import slug
 from painter.domain.roster import Roster, resolve_sections, section_instructors
 from painter.errors import InvalidInput
-from painter.events import NULL, Reporter, emit
+from painter.events import NULL, Reporter, emit, watches_canvas
 from painter.domain.assignments import require_one
 
 
@@ -122,6 +122,7 @@ def _academic_term(canvas: Canvas, req: GradeFilesRequest,
     return ay[-2:], term
 
 
+@watches_canvas()
 def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
                      reporter: Reporter = NULL) -> GradeFilesResult:
     """Write one blank grade file per section."""

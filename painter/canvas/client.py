@@ -10,7 +10,7 @@ import requests
 
 from painter.canvas.jobs import poll_until
 from painter.storage.atomic import atomic_write
-from painter.errors import InvalidInput, error_for_status
+from painter.errors import Cancelled, InvalidInput, error_for_status
 
 
 # --------------------------------------------------------------------------
@@ -39,6 +39,9 @@ PACE_CAP = 20.0             # longest single pacing pause, seconds
 
 
 DOWNLOAD_ATTEMPTS = 4       # whole-file retries when a transfer is cut off
+
+
+WAIT_SLICE = 1.0            # longest sleep between cancel checks, seconds
 
 
 def is_throttled(resp: requests.Response) -> bool:
@@ -100,6 +103,10 @@ class Canvas:
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {token}"
         self.sleep = time.sleep          # swapped out in tests
+        # Set by a service while it runs (events.watch): told about every
+        # pause, and asked between short slices of it whether to stop.
+        self.on_wait = None              # callable(reason, seconds, percent)
+        self.should_stop = None          # callable() -> bool
         self.stats = {"requests": 0, "throttled": 0, "retries": 0,
                       "paced_seconds": 0.0, "min_remaining": None}
 
@@ -112,14 +119,36 @@ class Canvas:
         self.stats["min_remaining"] = remaining if low is None else min(low, remaining)
         return remaining
 
-    def _pace(self, remaining: float | None) -> None:
+    def wait(self, seconds: float, reason: str, percent: float | None = None,
+             cancellable: bool = True) -> None:
+        """Pause, telling on_wait why. With should_stop set (a front end that
+        can cancel) and cancellable, the pause is slept in slices of at most
+        WAIT_SLICE seconds and raises Cancelled as soon as should_stop() is
+        true; otherwise it is one sleep, exactly as before."""
+        if self.on_wait:
+            self.on_wait(reason, seconds, percent)
+        if not (cancellable and self.should_stop):
+            self.sleep(seconds)
+            return
+        remaining = seconds
+        while True:
+            if self.should_stop():
+                raise Cancelled(f"stopped while {reason}")
+            if remaining <= 0:
+                return
+            step = min(WAIT_SLICE, remaining)
+            self.sleep(step)
+            remaining -= step
+
+    def _pace(self, remaining: float | None, cancellable: bool = True) -> None:
         """Slow down before the bucket runs dry, instead of after a 429."""
         if remaining is None or remaining >= RATE_LOW_WATER:
             return
         wait = min(PACE_CAP, (RATE_LOW_WATER - remaining) / RATE_REFILL_PER_SEC)
         if wait > 0:
             self.stats["paced_seconds"] += wait
-            self.sleep(wait)
+            self.wait(wait, "pacing requests to stay under Canvas's rate limit",
+                      cancellable=cancellable)
 
     def _request(self, method: str, url: str, retry_server_errors: bool = True,
                  auth: bool = True, timeout: float = 60, **kw) -> requests.Response:
@@ -150,7 +179,7 @@ class Canvas:
                 if not idempotent or final:
                     raise
                 self.stats["retries"] += 1
-                self.sleep(backoff_delay(attempt))
+                self.wait(backoff_delay(attempt), "retrying after a connection error")
                 continue
             last = resp
             remaining = self._note_rate(resp)
@@ -160,19 +189,23 @@ class Canvas:
                     break
                 self.stats["retries"] += 1
                 resp.close()
-                self.sleep(backoff_delay(attempt, retry_after_seconds(resp)))
+                # A throttled request was not processed, so stopping here is safe
+                self.wait(backoff_delay(attempt, retry_after_seconds(resp)),
+                          "Canvas is rate-limiting requests; retrying")
                 continue
             if retry_server_errors and resp.status_code in (500, 502, 503, 504):
                 if final:
                     break
                 self.stats["retries"] += 1
                 resp.close()
-                self.sleep(backoff_delay(attempt))
+                self.wait(backoff_delay(attempt), "Canvas server error; retrying")
                 continue
             err = error_for_status(resp)
             if err is not None:
                 raise err
-            self._pace(remaining)
+            # After a write Canvas has acted: never stop here, or its reply
+            # (e.g. a new job's ID) would be lost.
+            self._pace(remaining, cancellable=idempotent)
             return resp
         err = error_for_status(last)
         if err is not None:
@@ -227,7 +260,7 @@ class Canvas:
                 if attempt == DOWNLOAD_ATTEMPTS - 1:
                     raise
                 self.stats["retries"] += 1
-                self.sleep(backoff_delay(attempt))
+                self.wait(backoff_delay(attempt), "download interrupted; retrying")
         note = None
         if expected_size is not None and written != expected_size:
             note = (f"      ! {dest.name}: {written} bytes, Canvas listed "
@@ -351,7 +384,7 @@ class Canvas:
 
         progress, _ = poll_until(
             fetch, lambda p: p.get("workflow_state") in ("completed", "failed"),
-            timeout, sleep=self.sleep)
+            timeout, sleep=lambda s: self.wait(s, "waiting for Canvas to finish the job"))
         return progress
 
     # ---- quiz content export -------------------------------------------------

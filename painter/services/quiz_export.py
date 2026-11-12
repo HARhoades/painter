@@ -15,7 +15,7 @@ from painter.storage.atomic import atomic_write
 from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
 from painter.errors import Cancelled, InvalidInput, NotFound
-from painter.events import NULL, Reporter
+from painter.events import NULL, Reporter, watches_canvas
 from painter.canvas.jobs import (
     POLL_CAP, POLL_FACTOR, POLL_START, ResumableJob, discard_if_empty, poll_until,
 )
@@ -178,7 +178,8 @@ def _start_report(canvas: Canvas, course_id: int, assignment_id: int, deadline: 
                 reporter.info("  a student analysis report is already being generated; "
                       "waiting for it to finish")
                 told = True
-            canvas.sleep(min(wait, remaining))
+            canvas.wait(min(wait, remaining),
+                        "another student analysis report is being generated")
             wait = min(POLL_CAP, wait * POLL_FACTOR)
             continue
         # A POST that succeeded is never repeated: it may have started a job
@@ -204,7 +205,8 @@ def _finish_report(canvas: Canvas, job: ResumableJob, progress: dict, deadline: 
     progress, done = poll_until(
         lambda: canvas.progress(progress["id"]),
         lambda p: p.get("workflow_state") in ("completed", "failed"),
-        max(0.0, deadline - time.monotonic()), sleep=canvas.sleep, on_poll=report)
+        max(0.0, deadline - time.monotonic()), on_poll=report,
+        sleep=lambda s: canvas.wait(s, "waiting for the student analysis report", last[0]))
     if not done:
         raise TimeoutError(f"report job {progress['id']} is still "
                            f"{progress.get('workflow_state')} after {timeout:.0f}s. "
@@ -305,7 +307,8 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
     export, done = poll_until(
         lambda: canvas.content_export(course_id, export["id"]),
         lambda e: e.get("workflow_state") in EXPORT_FINAL_STATES,
-        timeout, sleep=canvas.sleep, on_poll=report)
+        timeout, on_poll=report,
+        sleep=lambda s: canvas.wait(s, f"waiting for the {export_type} export"))
     if not done:
         raise TimeoutError(
             f"export {export['id']} is still {export.get('workflow_state')} after "
@@ -417,6 +420,7 @@ class _ExportRun:
         return self.adir / EXPORT_STATE_FILE
 
 
+@watches_canvas()
 def export_quiz(canvas: Canvas, req: QuizExportRequest,
                 reporter: Reporter = NULL) -> QuizExportResult:
     """Download one quiz's student answers and its content.

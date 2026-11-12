@@ -17,6 +17,9 @@ class ConsoleReporter:
     def progress(self, done: int, total: int, label: str = "") -> None:
         pass            # the CLI prints its own per-item lines instead
 
+    def event(self, e) -> None:
+        pass            # typed events are for a GUI; the text lines say the same
+
     def cancelled(self) -> bool:
         return False    # Ctrl-C raises KeyboardInterrupt instead
 

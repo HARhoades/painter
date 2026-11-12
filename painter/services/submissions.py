@@ -12,7 +12,7 @@ from painter.domain.naming import attachment_filenames, flat_filename, slug, stu
 from painter.domain.roster import Roster
 from painter.domain.selection import Selection
 from painter.errors import Cancelled
-from painter.events import NULL, Note, Reporter, emit
+from painter.events import NULL, Note, Reporter, emit, watches_canvas
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
 from painter.storage.tabular import read_records, write_csv
@@ -138,6 +138,7 @@ class _DownloadRun:
     new_quizzes_without_files: list[dict] = field(default_factory=list)
 
 
+@watches_canvas()
 def download_submissions(canvas: Canvas, req: DownloadRequest,
                          reporter: Reporter = NULL) -> DownloadResult:
     """Download submission files, then write manifest.csv and the Excel log.
@@ -268,7 +269,11 @@ def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDa
             return
         if req.flat:
             fname = flat_filename(sub, fname)
-        status_text, target, extracted_to = _download_attachment(run, att, sdir, fname)
+        try:
+            status_text, target, extracted_to = _download_attachment(run, att, sdir, fname)
+        except Cancelled:          # during a retry pause: this file is not saved
+            run.stopped = True
+            return
         run.rows.append({**common, "filename": fname, "status": status_text,
                          "path": str(target), "extracted_to": extracted_to})
 
@@ -286,6 +291,8 @@ def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,
         fresh = download(run.canvas, att["url"], target, att.get("size"))
         if fresh.note:
             reporter.warning(fresh.note)
+    except Cancelled:
+        raise
     except Exception as exc:
         run.failures += 1
         reporter.info(f"    ! failed {fname}: {exc}")

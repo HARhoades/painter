@@ -10,7 +10,7 @@ import requests
 
 from painter.canvas.client import Canvas
 from painter.errors import Cancelled, InvalidInput, NotFound
-from painter.events import NULL, Reporter
+from painter.events import NULL, Reporter, watches_canvas
 from painter.domain.matching import StudentMatcher, same_words
 from painter.domain.roster import Roster
 from painter.services.grade_files import (
@@ -394,6 +394,7 @@ class GradePlanSet:
         return sum(len(p.to_send) for p in self.plans)
 
 
+@watches_canvas()
 def plan_grades(canvas: Canvas, paths: list[Path], course_id: int | None = None,
                 allow_duplicate_comments: bool = False) -> GradePlanSet:
     """Parse and check every grade file. Reads only; posts nothing.
@@ -430,6 +431,7 @@ class PostResult:
     failed: int                       # updates Canvas does not show afterwards
 
 
+@watches_canvas(cancellable=False)
 def post_grade_plans(canvas: Canvas, plans: GradePlanSet, log_dir: Path,
                      run_started: datetime, reporter: Reporter = NULL) -> PostResult:
     """Post every plan, verify each against Canvas, write the CSV log.

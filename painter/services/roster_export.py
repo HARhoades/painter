@@ -9,7 +9,7 @@ from painter.domain.roster import (
     Roster, section_instructors, split_name,
 )
 from painter.domain.selection import Selection
-from painter.events import NULL, Reporter, emit
+from painter.events import NULL, Reporter, emit, watches_canvas
 from painter.storage.tabular import write_csv
 
 
@@ -40,6 +40,7 @@ class RosterExportResult:
     sections_without_instructor: list[str]
 
 
+@watches_canvas()
 def export_roster_csv(canvas: Canvas, req: RosterExportRequest,
                       reporter: Reporter = NULL) -> RosterExportResult:
     """One line per student (per section), sorted by last name."""

@@ -16,7 +16,7 @@ from painter.config import default_browser_profile
 from painter.errors import (
     BrowserUnavailable, Cancelled, InvalidInput, MissingDependency,
 )
-from painter.events import NULL, Reporter
+from painter.events import NULL, Reporter, watches_canvas
 from painter.domain.assignments import quiz_kind, require_one
 from painter.domain.matching import same_words
 from painter.domain.naming import safe_filename, slug, student_folder_name
@@ -264,6 +264,7 @@ class BrowserUploadsResult:
     log_paths: list[Path] = field(default_factory=list)
 
 
+@watches_canvas()
 def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
                          reporter: Reporter = NULL,
                          open_browser=None) -> BrowserUploadsResult:
