@@ -9,6 +9,7 @@ import time
 import requests
 
 from painter.canvas.jobs import poll_until
+from painter.storage.atomic import atomic_write
 from painter.errors import InvalidInput, error_for_status
 
 
@@ -211,31 +212,26 @@ class Canvas:
         """
         if dest.exists() and (expected_size is None or dest.stat().st_size == expected_size):
             return FetchResult(False)  # already have it -- makes reruns cheap
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(dest.name + ".part")
+        written = 0
         for attempt in range(DOWNLOAD_ATTEMPTS):
             try:
                 with self._request("GET", url, auth=auth, stream=True,
-                                   timeout=120) as r:
-                    with open(tmp, "wb") as fh:
-                        for chunk in r.iter_content(chunk_size=1 << 16):
-                            fh.write(chunk)
+                                   timeout=120) as r, atomic_write(dest, "wb") as fh:
+                    written = 0
+                    for chunk in r.iter_content(chunk_size=1 << 16):
+                        fh.write(chunk)
+                        written += len(chunk)
                 break
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError):
                 if attempt == DOWNLOAD_ATTEMPTS - 1:
-                    tmp.unlink(missing_ok=True)
                     raise
                 self.stats["retries"] += 1
                 self.sleep(backoff_delay(attempt))
-            except Exception:
-                tmp.unlink(missing_ok=True)
-                raise
         note = None
-        if expected_size is not None and tmp.stat().st_size != expected_size:
-            note = (f"      ! {dest.name}: {tmp.stat().st_size} bytes, Canvas listed "
+        if expected_size is not None and written != expected_size:
+            note = (f"      ! {dest.name}: {written} bytes, Canvas listed "
                     f"{expected_size}")
-        tmp.replace(dest)
         return FetchResult(True, note)
 
     def rate_summary(self) -> str:

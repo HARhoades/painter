@@ -12,6 +12,7 @@ import zipfile
 
 import requests
 
+from painter.storage.atomic import atomic_write
 from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
 from painter.errors import Cancelled, InvalidInput, NotFound
@@ -105,14 +106,11 @@ def write_answers(raw: Path, plan: QuizExportPlan, name: str,
             reporter.info(f"  {dropped} row(s) for students outside the selection left out")
     written = []
     for d, rows in out.items():
-        d.mkdir(parents=True, exist_ok=True)
         dest = d / name
-        tmp = dest.with_name(dest.name + ".part")
-        with open(tmp, "w", newline="", encoding="utf-8-sig") as fh:
+        with atomic_write(dest, "w", newline="", encoding="utf-8-sig") as fh:
             w = csv.writer(fh)
             w.writerow(header)
             w.writerows(rows)
-        tmp.replace(dest)
         reporter.info(f"  {dest}: {len(rows)} row(s)")
         written.append(dest)
     return written, notes
@@ -457,16 +455,13 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
         if not items:
             warnings.append("the quiz has no items")
 
-        primary.mkdir(parents=True, exist_ok=True)
         json_path = primary / f"{stem}_new-quiz.json"
-        tmp = json_path.with_name(json_path.name + ".part")
-        tmp.write_text(json.dumps({
-            "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "canvas_host": canvas.base, "course_id": cid, "assignment_id": aid,
-            "assignment_name": assignment.get("name"),
-            "quiz": quiz, "items": items}, indent=2, ensure_ascii=False),
-            encoding="utf-8")
-        tmp.replace(json_path)
+        with atomic_write(json_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "canvas_host": canvas.base, "course_id": cid, "assignment_id": aid,
+                "assignment_name": assignment.get("name"),
+                "quiz": quiz, "items": items}, indent=2, ensure_ascii=False))
         json.loads(json_path.read_text(encoding="utf-8"))    # round-trip check
         shared.append(json_path)
 

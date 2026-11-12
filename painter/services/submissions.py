@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from painter.storage.atomic import atomic_write
 from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts, parse_tz
@@ -58,12 +59,10 @@ def write_manifest(path: Path, rows: list[dict]) -> int:
             if key not in columns:
                 columns.append(key)
         merged[str(row["path"])] = row
-    tmp = path.with_name(path.name + ".part")
-    with open(tmp, "w", newline="", encoding="utf-8-sig") as fh:
+    with atomic_write(path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns, restval="")
         writer.writeheader()
         writer.writerows(merged.values())
-    tmp.replace(path)
     return len(merged)
 
 

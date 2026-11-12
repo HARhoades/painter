@@ -11,6 +11,7 @@ import tarfile
 import zipfile
 
 from painter.canvas.client import Canvas, FetchResult
+from painter.storage.atomic import atomic_write  # noqa: F401  (re-exported)
 
 
 ARCHIVE_SUFFIXES = {".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
@@ -93,10 +94,8 @@ def extract(archive: Path, dest: Path) -> ExtractResult:
         opener = _COMPRESSED.get(archive.suffix.lower())
         if opener is not None:
             target = dest / (archive.stem or "file")
-            tmp = target.with_name(target.name + ".part")
-            with opener(archive, "rb") as src, open(tmp, "wb") as out:
+            with opener(archive, "rb") as src, atomic_write(target, "wb") as out:
                 shutil.copyfileobj(src, out, 1 << 20)
-            tmp.replace(target)
             return ExtractResult(True, notes)
         notes.append(f"      ! {archive.name} is not a readable archive; left as is")
     except Exception as exc:

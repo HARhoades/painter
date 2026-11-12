@@ -10,6 +10,7 @@ import time
 
 import requests
 
+from painter.storage.atomic import atomic_write
 from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
 from painter.config import default_browser_profile
@@ -471,10 +472,8 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
                         if not r.ok:
                             raise RuntimeError(f"HTTP {r.status}")
                         body = r.body()
-                        folder.mkdir(parents=True, exist_ok=True)
-                        tmp = target.with_name(target.name + ".part")
-                        tmp.write_bytes(body)
-                        tmp.replace(target)
+                        with atomic_write(target, "wb") as fh:
+                            fh.write(body)
                         status = "downloaded"
                         if f["size"] is not None and len(body) != f["size"]:
                             status += f" (size {len(body)}, quiz listed {f['size']})"

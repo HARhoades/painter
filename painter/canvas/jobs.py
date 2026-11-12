@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import time
 
+from painter.storage.atomic import atomic_write
+
 
 POLL_START = 2.0            # first wait when polling a background job
 
@@ -47,7 +49,5 @@ def _load_state(path: Path) -> dict:
 
 
 def _save_state(path: Path, state: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".part")
-    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    with atomic_write(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(state, indent=2))

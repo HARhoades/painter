@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import zipfile
 
+from painter.storage.atomic import atomic_write
+
 
 # --------------------------------------------------------------------------
 # Exporting a quiz's questions and answers
@@ -611,12 +613,11 @@ class QtiBuilder:
         return _xml_bytes(root)
 
     def write_zip(self, path: Path) -> None:
-        tmp = path.with_name(path.name + ".part")
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        with atomic_write(path, "wb") as fh, \
+                zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("imsmanifest.xml", self.manifest_xml())
             zf.writestr(f"{self.ident}/{self.ident}.xml", self.assessment_xml())
             zf.writestr(f"{self.ident}/assessment_meta.xml", self.meta_xml())
-        tmp.replace(path)
 
 
 def _escape(text: str) -> str:
