@@ -8,8 +8,9 @@ import re
 from painter.canvas.client import Canvas
 from painter.domain.naming import slug
 from painter.domain.roster import Roster, resolve_sections, section_instructors
-from painter.errors import InvalidInput, NotFound
+from painter.errors import InvalidInput
 from painter.events import NULL, Reporter, emit
+from painter.domain.assignments import require_one
 
 
 # --------------------------------------------------------------------------
@@ -103,16 +104,11 @@ def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
         reporter.info("No --section given: writing a file for every section in the course.")
 
     # Assignment is optional; without it the header is left blank to fill in.
-    assignment = None
     label = req.label
-    if req.assignment_ids:
-        if len(req.assignment_ids) > 1:
-            raise InvalidInput("--make-grade-files takes at most one --assignment.")
-        try:
-            assignment = canvas.assignment(req.course_id, req.assignment_ids[0])
-        except NotFound as exc:
-            raise InvalidInput(f"Assignment {req.assignment_ids[0]} not found in course "
-                               f"{req.course_id} ({exc}).")
+    assignment = require_one(canvas, req.course_id, req.assignment_ids,
+                             "--make-grade-files takes at most one --assignment.",
+                             optional=True)
+    if assignment:
         label = label or (assignment.get("name") or "").split()[0]
     if not label:
         raise InvalidInput("Without --assignment, pass --assignment-label NAME for "

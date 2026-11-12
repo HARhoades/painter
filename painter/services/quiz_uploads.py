@@ -14,10 +14,10 @@ from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
 from painter.config import default_browser_profile
 from painter.errors import (
-    BrowserUnavailable, Cancelled, InvalidInput, MissingDependency, NotFound,
+    BrowserUnavailable, Cancelled, InvalidInput, MissingDependency,
 )
 from painter.events import NULL, Reporter
-from painter.domain.assignments import quiz_kind
+from painter.domain.assignments import quiz_kind, require_one
 from painter.domain.matching import same_words
 from painter.domain.naming import safe_filename, slug, student_folder_name
 from painter.domain.roster import Roster
@@ -241,14 +241,10 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
                          reporter: Reporter = NULL) -> BrowserUploadsResult:
     """Download a New Quiz's File Upload answers through SpeedGrader in a
     Playwright-driven browser. Sign-in happens in that browser window."""
-    if len(req.assignment_ids) != 1:
-        raise InvalidInput("--browser-uploads needs exactly one --assignment "
-                           "(the quiz's assignment ID).")
+    assignment = require_one(canvas, req.course_id, req.assignment_ids,
+                             "--browser-uploads needs exactly one --assignment "
+                             "(the quiz's assignment ID).")
     cid, aid = req.course_id, req.assignment_ids[0]
-    try:
-        assignment = canvas.assignment(cid, aid)
-    except NotFound as exc:
-        raise InvalidInput(f"Assignment {aid} not found in course {cid} ({exc}).")
     if quiz_kind(assignment) != "new":
         raise InvalidInput(f"Assignment {aid} ({assignment.get('name')}) is not a "
                            "New Quiz; use a normal download run instead.")

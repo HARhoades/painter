@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from painter.domain.naming import slug
+from painter.errors import InvalidInput, NotFound
 
 
 def quiz_kind(assignment: dict) -> str | None:
@@ -17,6 +18,26 @@ def quiz_kind(assignment: dict) -> str | None:
     if "external_tool" in (assignment.get("submission_types") or []) and "quiz-lti" in tool:
         return "new"
     return None
+
+
+def require_one(canvas, course_id: int, assignment_ids, count_error: str,
+                optional: bool = False) -> dict | None:
+    """The single assignment a mode works on, fetched from Canvas.
+
+    count_error is the message when the number of IDs is wrong (none, unless
+    optional, or more than one). A missing assignment is InvalidInput with
+    the same wording everywhere; any other Canvas error propagates.
+    """
+    ids = tuple(assignment_ids or ())
+    if not ids and optional:
+        return None
+    if len(ids) != 1:
+        raise InvalidInput(count_error)
+    try:
+        return canvas.assignment(course_id, ids[0])
+    except NotFound as exc:
+        raise InvalidInput(f"Assignment {ids[0]} not found in course {course_id} "
+                           f"({exc}).") from None
 
 
 def assignment_dir_name(assignment: dict) -> str:

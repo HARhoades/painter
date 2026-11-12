@@ -19,7 +19,7 @@ from painter.events import NULL, Reporter
 from painter.canvas.jobs import (
     POLL_CAP, POLL_FACTOR, POLL_START, _load_state, _save_state, poll_until,
 )
-from painter.domain.assignments import assignment_folder, quiz_kind
+from painter.domain.assignments import assignment_folder, quiz_kind, require_one
 from painter.domain.duedates import fmt_ts, parse_ts
 from painter.domain.naming import slug
 from painter.qti.builder import QTI_REPORT_COLUMNS, QtiBuilder, strip_html
@@ -376,14 +376,10 @@ class QuizExportResult:
 def export_quiz(canvas: Canvas, req: QuizExportRequest,
                 reporter: Reporter = NULL) -> QuizExportResult:
     """Download one quiz's student answers and its content."""
-    if len(req.assignment_ids) != 1:
-        raise InvalidInput("--export-quiz needs exactly one --assignment "
-                           "(the quiz's assignment ID; see --list-assignments).")
+    assignment = require_one(canvas, req.course_id, req.assignment_ids,
+                             "--export-quiz needs exactly one --assignment "
+                             "(the quiz's assignment ID; see --list-assignments).")
     cid, aid = req.course_id, req.assignment_ids[0]
-    try:
-        assignment = canvas.assignment(cid, aid)
-    except NotFound as exc:
-        raise InvalidInput(f"Assignment {aid} not found in course {cid} ({exc}).")
     kind = quiz_kind(assignment)
     if kind is None:
         raise InvalidInput(f"Assignment {aid} ({assignment.get('name')}) is not a quiz.")

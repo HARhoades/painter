@@ -120,3 +120,21 @@ def test_student_matcher():
     assert [u["id"] for u in m.by_words("doe jane")] == [501]
     kinds = [k for k, _, _ in m.value_lookups()]
     assert kinds == ["Canvas user ID", "SIS user ID", "login", "name"]
+
+
+def test_a10_one_assignment_check(fake_canvas):
+    import pytest
+    from painter.canvas.client import Canvas
+    from painter.domain.assignments import require_one
+    from painter.errors import InvalidInput
+    c = Canvas("https://canvas.test", "t")
+    assert require_one(c, 100, (7001,), "one please")["id"] == 7001
+    assert require_one(c, 100, (), "one please", optional=True) is None
+    for ids in ((), (7001, 7002)):
+        with pytest.raises(InvalidInput, match="one please"):
+            require_one(c, 100, ids, "one please")
+    with pytest.raises(InvalidInput, match="Assignment 9999 not found in course 100"):
+        require_one(c, 100, (9999,), "one please")
+    # nothing else fetches a single assignment for a mode
+    # grading looks up the assignment each grade file names, a different job
+    assert where([".", "assignment", "("]) == {"domain/assignments.py", "services/grading.py"}
