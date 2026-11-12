@@ -96,13 +96,13 @@ def _assignment_and_label(canvas: Canvas, req: GradeFilesRequest) -> tuple[dict 
     in) and the label that names the files."""
     label = req.label
     assignment = require_one(canvas, req.course_id, req.assignment_ids,
-                             "--make-grade-files takes at most one --assignment.",
+                             "grade files are made for at most one assignment.",
                              optional=True)
     if assignment:
         label = label or (assignment.get("name") or "").split()[0]
     if not label:
-        raise InvalidInput("Without --assignment, pass --assignment-label NAME for "
-                           "the filename, e.g. --assignment-label DATE.")
+        raise InvalidInput("Without --assignment, pass --label NAME for "
+                           "the filename, e.g. --label DATE.")
     return assignment, slug(label, 30)
 
 

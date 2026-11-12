@@ -6,10 +6,11 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--out",
-    "<TMP>/o",
     "--tz",
-    "Mars/Olympus"
+    "Mars/Olympus",
+    "download",
+    "--out",
+    "<TMP>/o"
    ],
    "exit": "Unknown timezone 'Mars/Olympus': 'No time zone found with key Mars/Olympus'",
    "stdout": [],

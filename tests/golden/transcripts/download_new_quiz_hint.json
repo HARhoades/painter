@@ -6,6 +6,7 @@
     "https://canvas.test",
     "--course",
     "100",
+    "download",
     "--out",
     "<TMP>/o",
     "--assignment",
@@ -19,7 +20,7 @@
     "  3 submitted, but New Quizzes keeps File Upload answers inside the quiz tool, not on the Canvas submission, so there are no attachments to download here.",
     "",
     "New Quiz file uploads can't be fetched with the Submissions API. To try pulling them from the quiz's answers report instead, run:",
-    "  --course 100 --assignment 7003 --export-quiz --quiz-uploads --no-course-export",
+    "  painter quiz export --course 100 --assignment 7003 --uploads --no-course-export",
     "",
     "No submission files found. (New Quizzes skipped for the reason above.)"
    ],

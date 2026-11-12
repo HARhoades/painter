@@ -122,7 +122,7 @@ def resolve_sections(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
     if unmatched:
         raise InvalidInput(
             "No section match for: " + ", ".join(repr(s) for s in unmatched) +
-            "\nRun with --list-sections to see valid IDs and names."
+            "\nRun `painter list sections` to see valid IDs and names."
         )
     return selected, notes
 
@@ -150,7 +150,7 @@ def resolve_students(roster: Roster, specs: list[str]) -> tuple[set[int], list[N
     if unmatched:
         raise InvalidInput(
             "No roster match for: " + ", ".join(repr(s) for s in unmatched) +
-            "\nRun with --list-students to see valid IDs and names."
+            "\nRun `painter list students` to see valid IDs and names."
         )
     return selected, notes
 
@@ -173,7 +173,7 @@ def assigned_students(canvas: Canvas, course_id: int,
                     users.add(sub["user_id"])
         except NotFound as exc:
             raise InvalidInput(f"Assignment {aid} not found in course {course_id} "
-                             f"({exc}).\nRun with --list-assignments to see valid IDs.")
+                             f"({exc}).\nRun `painter list assignments` to see valid IDs.")
     return users
 
 

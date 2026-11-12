@@ -6,7 +6,8 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-sections"
+    "list",
+    "sections"
    ],
    "exit": 4,
    "stdout": [],
@@ -25,7 +26,7 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--roster-csv",
+    "roster",
     "<TMP>/r.csv"
    ],
    "exit": 4,

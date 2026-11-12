@@ -6,9 +6,9 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--post-grades",
+    "grades",
+    "post",
     "<TMP>/A2-DATE_Grading-27-1.txt",
-    "--post-grades",
     "<TMP>/A1.txt",
     "--dry-run",
     "--allow-duplicate-comments"

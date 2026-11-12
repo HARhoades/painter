@@ -6,6 +6,9 @@
     "https://canvas.test",
     "--course",
     "100",
+    "--tz",
+    "America/New_York",
+    "download",
     "--out",
     "<TMP>/o",
     "--assignment",
@@ -15,9 +18,7 @@
     "--by-section",
     "--flat",
     "--no-extract",
-    "--no-xlsx",
-    "--tz",
-    "America/New_York"
+    "--no-xlsx"
    ],
    "exit": 0,
    "stdout": [

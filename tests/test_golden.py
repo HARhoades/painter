@@ -37,7 +37,9 @@ class Ctx:
 
     def run(self, *argv):
         from painter.cli.main import main
-        self.monkeypatch.setattr(sys, "argv", ["canvas_fetch_submissions.py", *argv])
+        from golden.legacy_argv import translate
+        argv = translate(list(argv))
+        self.monkeypatch.setattr(sys, "argv", ["painter", *argv])
         before_calls, before_forms = len(self.fake.calls), len(self.fake.posted_forms)
         try:
             code = main()

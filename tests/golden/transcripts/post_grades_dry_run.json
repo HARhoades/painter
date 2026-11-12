@@ -4,7 +4,8 @@
    "argv": [
     "--base-url",
     "https://canvas.test",
-    "--post-grades",
+    "grades",
+    "post",
     "<TMP>/A2-DATE_Grading-27-1.txt",
     "--dry-run"
    ],

@@ -2,7 +2,7 @@
  "steps": [
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/DATE-Scenario_7001",
     "--roster",
     "<TMP>/roster.csv",
@@ -27,11 +27,11 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/DATE-Scenario_7001",
     "--roster",
     "<TMP>/roster.csv",
-    "--organize-to",
+    "--to",
     "<TMP>/copy"
    ],
    "exit": 0,
@@ -55,7 +55,7 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/DATE-Scenario_7001",
     "--roster",
     "<TMP>/roster.csv"
@@ -81,7 +81,7 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/DATE-Scenario_7001",
     "--roster",
     "<TMP>/roster.csv"

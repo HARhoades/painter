@@ -6,13 +6,20 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--export-quiz",
+    "quiz",
+    "export",
     "--out",
     "<TMP>/o"
    ],
-   "exit": "--export-quiz needs exactly one --assignment (the quiz's assignment ID; see --list-assignments).",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "usage: painter quiz export [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] --assignment",
+    "                           ID [--section SPEC] [--student SPEC] [--by-section] [--out DIR]",
+    "                           [--no-answers] [--uploads] [--no-course-export] [--timeout SECONDS]",
+    "                           [--dry-run]",
+    "painter quiz export: error: the following arguments are required: --assignment"
+   ],
    "requests": [],
    "posted": []
   },
@@ -22,9 +29,10 @@
     "https://canvas.test",
     "--course",
     "100",
+    "quiz",
+    "export",
     "--assignment",
     "7001",
-    "--export-quiz",
     "--out",
     "<TMP>/o"
    ],
@@ -42,9 +50,10 @@
     "https://canvas.test",
     "--course",
     "100",
+    "quiz",
+    "export",
     "--assignment",
     "9999",
-    "--export-quiz",
     "--out",
     "<TMP>/o"
    ],

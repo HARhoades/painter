@@ -334,8 +334,8 @@ def _finish_download(run: _DownloadRun) -> DownloadResult:
         reporter.info("\nNew Quiz file uploads can't be fetched with the Submissions API. "
                       "To try pulling them from the quiz's answers report instead, run:")
         for a in run.new_quizzes_without_files:
-            reporter.info(f"  --course {req.course_id} --assignment {a['id']} "
-                          "--export-quiz --quiz-uploads --no-course-export")
+            reporter.info(f"  painter quiz export --course {req.course_id} "
+                          f"--assignment {a['id']} --uploads --no-course-export")
 
     if rows:
         out_root.mkdir(parents=True, exist_ok=True)

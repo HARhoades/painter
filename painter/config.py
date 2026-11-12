@@ -34,5 +34,5 @@ def app_data_dir(env=None, platform: str | None = None) -> Path:
 
 
 def default_browser_profile(env=None, platform: str | None = None) -> Path:
-    """Where the signed-in browser profile for --browser-uploads lives."""
+    """Where the signed-in browser profile for `painter quiz uploads` lives."""
     return app_data_dir(env, platform) / "browser-profile"

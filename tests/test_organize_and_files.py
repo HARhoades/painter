@@ -6,7 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from painter.cli.commands import organize as organize_submissions
+from painter.cli.commands import organize
+
+
+def organize_submissions(args):
+    return organize(args, None)
 from painter.errors import InvalidInput
 from painter.services.organize import RosterIndex, read_roster_csv
 from painter.storage.files import extract
@@ -61,8 +65,7 @@ def test_read_roster_csv_rejects_other_files(tmp_path):
 
 
 def organize_args(src, roster, **over):
-    base = dict(organize=str(src), roster=str(roster), section=None,
-                organize_to=None, dry_run=False)
+    base = dict(folder=str(src), roster=str(roster), section=None, to=None, dry_run=False)
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -108,11 +111,11 @@ def test_organize_copy_to_another_tree(tmp_path, capsys):
     make_tree(src)
     roster = write_roster(tmp_path / "roster.csv")
     dest = tmp_path / "by_section"
-    assert organize_submissions(organize_args(src, roster, organize_to=str(dest))) == 0
+    assert organize_submissions(organize_args(src, roster, to=str(dest))) == 0
     assert (dest / "A1-8" / "Doe-Jane_501" / "essay.pdf").exists()
     assert (src / "Doe-Jane_501" / "essay.pdf").exists()
     with pytest.raises(InvalidInput):
-        organize_submissions(organize_args(src, roster, organize_to=str(src / "inside")))
+        organize_submissions(organize_args(src, roster, to=str(src / "inside")))
 
 
 def test_extract_zip_refuses_paths_that_escape(tmp_path):

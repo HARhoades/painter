@@ -293,18 +293,32 @@ def test_export_quiz_content_and_answers_by_section(fake_canvas, run_cli, tmp_pa
 
 # ---- argument checks ----------------------------------------------------------
 @pytest.mark.parametrize("argv, message", [
-    (["--course", "100"], "--base-url is required"),
-    (["--base-url", BASE], "--course is required"),
-    (["--base-url", BASE, "--course", "100", "--export-quiz", "--roster-csv", "r.csv"],
-     "cannot be combined"),
-    (["--organize", "x"], "--organize needs --roster FILE"),
-    (["--base-url", BASE, "--course", "100", "--quiz-uploads"], "--quiz-uploads needs --export-quiz"),
-    (["--base-url", "http://canvas.test", "--course", "100"], "must be an https:// address"),
-    (["--base-url", "canvas.test", "--course", "100"], "must be an https:// address"),
+    ([], "choose a command"),
+    (["download", "--course", "100"], "--base-url is required"),
+    (["download", "--base-url", BASE], "--course is required"),
+    ([*COMMON, "roster", "r.csv", "--flat"], "unrecognized arguments: --flat"),
+    (["organize", "x"], "required: --roster"),
+    ([*COMMON, "quiz", "export"], "required: --assignment"),
+    ([*COMMON, "quiz", "export", "--assignment", "1", "--uploads", "--no-answers"],
+     "--uploads needs the answers report"),
+    ([*COMMON, "quiz", "uploads", "--assignment", "1", "--assignment", "2"],
+     "--assignment can be given only once"),
+    (["download", "--base-url", "http://canvas.test", "--course", "100"],
+     "must be an https:// address"),
+    (["--base-url", "canvas.test", "--course", "100", "download"], "must be an https:// address"),
 ])
 def test_argument_errors(fake_canvas, run_cli, argv, message):
     code, _, err = run_cli(*argv)
     assert code == 2 and message in err
+
+
+def test_global_options_before_or_after_the_command(fake_canvas, run_cli, tmp_path):
+    for argv in (["--base-url", BASE, "--course", "100", "download"],
+                 ["download", "--base-url", BASE, "--course", "100"],
+                 ["--base-url", BASE, "download", "--course", "100", "--tz", "UTC"]):
+        code, out, _ = run_cli(*argv, "--assignment", "7002", "--no-xlsx",
+                               "--out", str(tmp_path / "o"))
+        assert code == 0 and "No submission files found." in out
 
 
 def test_missing_token(fake_canvas, run_cli, monkeypatch):

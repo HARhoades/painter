@@ -4,7 +4,8 @@
    "argv": [
     "--base-url",
     "https://canvas.test",
-    "--post-grades",
+    "grades",
+    "post",
     "<TMP>/bad.txt",
     "--yes"
    ],
@@ -35,7 +36,8 @@
    "argv": [
     "--base-url",
     "https://canvas.test",
-    "--post-grades",
+    "grades",
+    "post",
     "<TMP>/junk.txt"
    ],
    "exit": 1,
@@ -52,7 +54,8 @@
    "argv": [
     "--base-url",
     "https://canvas.test",
-    "--post-grades",
+    "grades",
+    "post",
     "<TMP>/missing.txt"
    ],
    "exit": 1,

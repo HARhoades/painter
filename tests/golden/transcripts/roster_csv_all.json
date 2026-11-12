@@ -6,7 +6,7 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--roster-csv",
+    "roster",
     "<TMP>/roster.csv"
    ],
    "exit": 0,

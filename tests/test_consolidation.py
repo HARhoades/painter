@@ -182,14 +182,11 @@ def test_a13_one_uploads_log_writer():
 
 
 def test_part_b_no_oversized_functions():
-    """Phase 4 part B: no function over 80 lines outside cli/ (the CLI
-    parser is replaced in part D and then covered too)."""
+    """Phase 4 part B: no function anywhere in the package over 80 lines."""
     import ast
     long = []
     for path in PKG.rglob("*.py"):
         rel = path.relative_to(PKG).as_posix()
-        if rel.startswith("cli/"):
-            continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 n = node.end_lineno - node.lineno + 1

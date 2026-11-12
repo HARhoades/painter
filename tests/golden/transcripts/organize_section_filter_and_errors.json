@@ -2,7 +2,7 @@
  "steps": [
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/s",
     "--roster",
     "<TMP>/roster.csv",
@@ -28,7 +28,7 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/s",
     "--roster",
     "<TMP>/roster.csv",
@@ -43,14 +43,14 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/s",
     "--roster",
     "<TMP>/roster.csv",
-    "--organize-to",
+    "--to",
     "<TMP>/s/in"
    ],
-   "exit": "--organize-to can't be inside the folder being organized",
+   "exit": "--to can't be inside the folder being organized",
    "stdout": [],
    "stderr": [],
    "requests": [],
@@ -58,12 +58,12 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/nope",
     "--roster",
     "<TMP>/roster.csv"
    ],
-   "exit": "--organize: <TMP>/nope is not a folder",
+   "exit": "organize: <TMP>/nope is not a folder",
    "stdout": [],
    "stderr": [],
    "requests": [],
@@ -71,7 +71,7 @@
   },
   {
    "argv": [
-    "--organize",
+    "organize",
     "<TMP>/s",
     "--roster",
     "<TMP>/no-roster.csv"

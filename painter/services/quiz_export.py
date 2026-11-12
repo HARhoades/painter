@@ -451,8 +451,8 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
 def _plan_export(canvas: Canvas, req: QuizExportRequest,
                  reporter: Reporter) -> _ExportRun | QuizExportResult:
     assignment = require_one(canvas, req.course_id, req.assignment_ids,
-                             "--export-quiz needs exactly one --assignment "
-                             "(the quiz's assignment ID; see --list-assignments).")
+                             "quiz export needs exactly one --assignment "
+                             "(the quiz's assignment ID; see `painter list assignments`).")
     aid = req.assignment_ids[0]
     kind = quiz_kind(assignment)
     if kind is None:

@@ -6,11 +6,12 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-students",
+    "list",
+    "students",
     "--section",
     "nope"
    ],
-   "exit": "No section match for: 'nope'\nRun with --list-sections to see valid IDs and names.",
+   "exit": "No section match for: 'nope'\nRun `painter list sections` to see valid IDs and names.",
    "stdout": [],
    "stderr": [],
    "requests": [
@@ -25,7 +26,8 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-students",
+    "list",
+    "students",
     "--section",
     ""
    ],

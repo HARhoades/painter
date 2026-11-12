@@ -6,7 +6,8 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-students"
+    "list",
+    "students"
    ],
    "exit": 0,
    "stdout": [
@@ -29,7 +30,8 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-students",
+    "list",
+    "students",
     "--section",
     "A2"
    ],
@@ -54,7 +56,8 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-students",
+    "list",
+    "students",
     "--student",
     "Doe",
     "--assignment",

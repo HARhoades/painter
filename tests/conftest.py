@@ -214,7 +214,10 @@ def run_cli(monkeypatch, capsys):
     from painter.cli.main import main
 
     def run(*argv: str):
-        monkeypatch.setattr(sys, "argv", ["canvas_fetch_submissions.py", *argv])
+        # Old flag-style lines are translated to the subcommands (see
+        # tests/golden/legacy_argv.py); new-style lines pass through.
+        from golden.legacy_argv import translate
+        monkeypatch.setattr(sys, "argv", ["painter", *translate(list(argv))])
         try:
             code = main()
         except SystemExit as exc:

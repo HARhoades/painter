@@ -341,7 +341,7 @@ def _plan_uploads(canvas: Canvas, req: BrowserUploadsRequest,
                   reporter: Reporter) -> "_UploadsRun | BrowserUploadsResult":
     """The quiz, the selection, and the submitted students to visit (sorted)."""
     assignment = require_one(canvas, req.course_id, req.assignment_ids,
-                             "--browser-uploads needs exactly one --assignment "
+                             "quiz uploads needs exactly one --assignment "
                              "(the quiz's assignment ID).")
     cid, aid = req.course_id, req.assignment_ids[0]
     if quiz_kind(assignment) != "new":
@@ -465,7 +465,7 @@ class PlaywrightQuizBrowser:
         except ImportError:
             raise MissingDependency("Playwright is not installed: pip install playwright "
                              "(then 'playwright install chromium' if you use "
-                             "--browser-channel chromium).")
+                             "--channel chromium).")
         self._sync_playwright, self.PWError = sync_playwright, PWError
         self.canvas, self.req, self.reporter = canvas, req, reporter
         self.course_url = f"{canvas.base}/courses/{req.course_id}"
@@ -593,8 +593,8 @@ class PlaywrightQuizBrowser:
                     "Not signed in to Canvas after "
                     f"{req.signin_timeout:.0f}s. If the sign-in page never "
                     "finished (common with CAC certificate prompts in a browser "
-                    "Playwright starts), use --connect-browser instead; see "
-                    "--help.")
+                    "Playwright starts), use --connect instead; see "
+                    "`painter quiz uploads --help`.")
             self.page = found
         reporter.info("Signed in.")
 

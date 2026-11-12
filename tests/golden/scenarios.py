@@ -527,13 +527,17 @@ def browser_uploads_errors(c):
 # ---- argument and environment errors ------------------------------------------------
 @scenario
 def argument_errors(c):
-    c.run("--course", "100")
-    c.run("--base-url", BASE)
-    c.run("--base-url", "http://canvas.test", "--course", "100")
-    c.run(*COMMON, "--export-quiz", "--roster-csv", "r.csv")
-    c.run("--organize", "x")
-    c.run(*COMMON, "--quiz-uploads")
-    c.run(*COMMON, "--roster", "r.csv")
+    """Written for the subcommands (phase 4): each line is one kind of mistake."""
+    c.run()                                                   # no command
+    c.run("list")                                             # incomplete command
+    c.run("download", "--course", "100")                      # no --base-url
+    c.run("download", "--base-url", BASE)                     # no --course
+    c.run("download", "--base-url", "http://canvas.test", "--course", "100")
+    c.run(*COMMON, "roster", "r.csv", "--flat")               # option of another command
+    c.run("organize", "x")                                    # --roster required
+    c.run(*COMMON, "quiz", "export", "--assignment", "7003", "--uploads", "--no-answers")
+    c.run(*COMMON, "grades", "new", "--assignment", "7001", "--assignment", "7002")
+    c.run(*COMMON, "--assignment", "7001", "download")        # option before its command
 
 
 @scenario

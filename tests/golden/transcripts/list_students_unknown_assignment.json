@@ -6,11 +6,12 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-students",
+    "list",
+    "students",
     "--assignment",
     "9999"
    ],
-   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999/submissions).\nRun with --list-assignments to see valid IDs.",
+   "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999/submissions).\nRun `painter list assignments` to see valid IDs.",
    "stdout": [],
    "stderr": [],
    "requests": [

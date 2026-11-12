@@ -6,11 +6,12 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--make-grade-files",
-    "--grade-file-dir",
+    "grades",
+    "new",
+    "--dir",
     "<TMP>/g"
    ],
-   "exit": "Without --assignment, pass --assignment-label NAME for the filename, e.g. --assignment-label DATE.",
+   "exit": "Without --assignment, pass --label NAME for the filename, e.g. --label DATE.",
    "stdout": [
     "No --section given: writing a file for every section in the course."
    ],
@@ -27,23 +28,24 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--make-grade-files",
+    "grades",
+    "new",
     "--assignment",
     "7001",
     "--assignment",
     "7002",
-    "--grade-file-dir",
+    "--dir",
     "<TMP>/g"
    ],
-   "exit": "--make-grade-files takes at most one --assignment.",
-   "stdout": [
-    "No --section given: writing a file for every section in the course."
+   "exit": 2,
+   "stdout": [],
+   "stderr": [
+    "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE]",
+    "                          [--assignment ID] [--section SPEC] [--label NAME] [--ay YY] [--term N]",
+    "                          [--dir DIR] [--force]",
+    "painter grades new: error: --assignment can be given only once"
    ],
-   "stderr": [],
-   "requests": [
-    "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",
-    "GET /api/v1/courses/100/enrollments {\"per_page\": [100], \"state[]\": [\"active\", \"invited\"], \"type[]\": [\"StudentEnrollment\"]}"
-   ],
+   "requests": [],
    "posted": []
   },
   {
@@ -52,10 +54,11 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--make-grade-files",
+    "grades",
+    "new",
     "--assignment",
     "9999",
-    "--grade-file-dir",
+    "--dir",
     "<TMP>/g"
    ],
    "exit": "Assignment 9999 not found in course 100 (404 Client Error: Error for url: https://canvas.test/api/v1/courses/100/assignments/9999).",
@@ -76,10 +79,11 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--make-grade-files",
+    "grades",
+    "new",
     "--assignment",
     "7001",
-    "--grade-file-dir",
+    "--dir",
     "<TMP>/g"
    ],
    "exit": "Could not read an academic year and semester from the course term name 'Fall'. Pass --ay and --term, e.g. --ay 27 --term 1.",

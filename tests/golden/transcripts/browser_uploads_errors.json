@@ -6,13 +6,21 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--browser-uploads",
+    "quiz",
+    "uploads",
     "--out",
     "<TMP>/o"
    ],
-   "exit": "--browser-uploads needs exactly one --assignment (the quiz's assignment ID).",
+   "exit": 2,
    "stdout": [],
-   "stderr": [],
+   "stderr": [
+    "usage: painter quiz uploads [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] --assignment",
+    "                            ID [--section SPEC] [--student SPEC] [--by-section] [--out DIR]",
+    "                            [--profile DIR] [--channel {chrome,msedge,chromium}] [--connect URL]",
+    "                            [--headless] [--signin-timeout SECONDS] [--page-timeout SECONDS]",
+    "                            [--delay SECONDS] [--limit N] [--dry-run]",
+    "painter quiz uploads: error: the following arguments are required: --assignment"
+   ],
    "requests": [],
    "posted": []
   },
@@ -22,9 +30,10 @@
     "https://canvas.test",
     "--course",
     "100",
+    "quiz",
+    "uploads",
     "--assignment",
     "7001",
-    "--browser-uploads",
     "--out",
     "<TMP>/o"
    ],

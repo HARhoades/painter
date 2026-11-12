@@ -16,7 +16,7 @@ from painter.storage.tabular import read_records, write_csv
 
 
 def read_roster_csv(path: Path) -> list[dict]:
-    """Rows of a --roster-csv file (header names, not positions, are used)."""
+    """Rows of a `painter roster` CSV (header names, not positions, are used)."""
     try:
         _, rows = read_records(path)
     except OSError as exc:
@@ -24,7 +24,7 @@ def read_roster_csv(path: Path) -> list[dict]:
     need = {"Student Canvas ID", "Section Name"}
     missing = need - set(rows[0].keys() if rows else need)
     if not rows or missing:
-        raise InvalidInput(f"{path} doesn't look like a --roster-csv file"
+        raise InvalidInput(f"{path} doesn't look like a roster file from `painter roster`"
                          + (f" (missing {', '.join(sorted(missing))})" if missing else
                             " (no rows)"))
     return rows
@@ -176,7 +176,7 @@ def plan_organize(req: OrganizeRequest) -> OrganizePlan:
     """Work out where every student folder or file goes. Reads only."""
     src_root = Path(req.src)
     if not src_root.is_dir():
-        raise InvalidInput(f"--organize: {src_root} is not a folder")
+        raise InvalidInput(f"organize: {src_root} is not a folder")
     index = RosterIndex(read_roster_csv(Path(req.roster_csv)),
                         list(req.section_specs) or None)
     if not index.sections:
@@ -184,7 +184,7 @@ def plan_organize(req: OrganizeRequest) -> OrganizePlan:
     dest_root = Path(req.dest) if req.dest else src_root
     copying = dest_root.resolve() != src_root.resolve()
     if copying and dest_root.resolve().is_relative_to(src_root.resolve()):
-        raise InvalidInput("--organize-to can't be inside the folder being organized")
+        raise InvalidInput("--to can't be inside the folder being organized")
 
     # A section that holds every student (a course-wide default) never
     # receives anyone, so it doesn't get a folder.

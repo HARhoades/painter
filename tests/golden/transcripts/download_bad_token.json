@@ -6,6 +6,7 @@
     "https://canvas.test",
     "--course",
     "100",
+    "download",
     "--out",
     "<TMP>/o"
    ],

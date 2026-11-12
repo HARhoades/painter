@@ -6,9 +6,10 @@
     "https://canvas.test",
     "--course",
     "100",
+    "quiz",
+    "export",
     "--assignment",
     "7003",
-    "--export-quiz",
     "--out",
     "<TMP>/o"
    ],

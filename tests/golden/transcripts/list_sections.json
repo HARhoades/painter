@@ -6,7 +6,8 @@
     "https://canvas.test",
     "--course",
     "100",
-    "--list-sections"
+    "list",
+    "sections"
    ],
    "exit": 0,
    "stdout": [
