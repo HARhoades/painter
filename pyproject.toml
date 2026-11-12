@@ -16,8 +16,14 @@ xlsx = ["openpyxl>=3.1"]          # Excel run log
 browser = ["playwright>=1.40"]    # --browser-uploads
 dev = ["pytest>=7", "openpyxl>=3.1"]
 
+[project.scripts]
+painter = "painter.cli.main:main"
+
 [tool.setuptools]
 py-modules = ["canvas_fetch_submissions"]
+
+[tool.setuptools.packages.find]
+include = ["painter*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
