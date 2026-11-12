@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import os
+from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas
-from painter.config import TOKEN_ENV
+from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
 from painter.services.grade_files import make_grade_files
 from painter.services.grading import post_grades
 from painter.services.organize import organize_submissions
@@ -128,9 +129,10 @@ def main() -> int:
                     help="Download a New Quiz's File Upload answers by opening each "
                          "submitted student in SpeedGrader in a browser. Needs "
                          "--assignment; honours --section/--student/--by-section.")
-    g6.add_argument("--browser-profile", default="./canvas-browser-profile", metavar="DIR",
+    g6.add_argument("--browser-profile", metavar="DIR",
                     help="Browser profile folder that keeps you signed in between "
-                         "runs (default ./canvas-browser-profile). Keep it private.")
+                         f"runs (default {default_browser_profile()}, a local "
+                         "folder that is not synced to OneDrive). Keep it private.")
     g6.add_argument("--browser-channel", default="chrome",
                     choices=["chrome", "msedge", "chromium"],
                     help="Installed Chrome (default), Edge, or Playwright's own Chromium")
@@ -157,6 +159,14 @@ def main() -> int:
                          "report or export job (default 900). A rerun resumes a "
                          "job that timed out.")
     args = p.parse_args()
+    if args.browser_profile is None:
+        args.browser_profile = str(default_browser_profile())
+        if args.browser_uploads and Path(LEGACY_BROWSER_PROFILE).is_dir():
+            print(f"note: ./{LEGACY_BROWSER_PROFILE} (the old default) is no longer "
+                  f"used; the profile now lives in {args.browser_profile}. It holds "
+                  "a signed-in Canvas session: delete it, or move it there to stay "
+                  "signed in, especially if this folder is synced to OneDrive.",
+                  file=sys.stderr)
     modes = [m for m, on in (("--post-grades", args.post_grades),
                              ("--make-grade-files", args.make_grade_files),
                              ("--roster-csv", args.roster_csv),
