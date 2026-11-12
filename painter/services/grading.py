@@ -6,12 +6,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import re
-import sys
 
 import requests
 
 from painter.canvas.client import Canvas
-from painter.errors import NotFound
+from painter.errors import Cancelled, InvalidInput, NotFound
+from painter.events import NULL, Reporter
 from painter.domain.matching import name_matches
 from painter.domain.roster import Roster
 from painter.services.grade_files import (
@@ -273,36 +273,6 @@ def _preview(text: str, width: int = 60) -> str:
     return repr(one_line if len(one_line) <= width else one_line[:width - 1] + "…")
 
 
-def print_grade_plan(plan: GradePlan) -> None:
-    a, gf = plan.assignment, plan.source
-    scale = a.get("grading_type") or ""
-    if scale == "points" and a.get("points_possible") is not None:
-        scale = f"points, out of {a['points_possible']:g}"
-    print(f"\n{gf.path.name}  (course {plan.course_id})")
-    print(f"  Assignment {a['id']}  {a.get('name', '')}  ({scale})")
-    if plan.section:
-        inst = f"  instructor {gf.instructor}" if gf.instructor else ""
-        print(f"  Section    {plan.section['id']}  {plan.section.get('name', '')}{inst}")
-    for note in plan.notes:
-        print(f"  note: {note}")
-    for it in plan.items:
-        parts = []
-        if "excuse" in it.fields:
-            parts.append(f"grade {it.grade_before or '-'} -> EXCUSED")
-        elif "posted_grade" in it.fields:
-            parts.append(f"grade {it.grade_before or '-'} -> {it.fields['posted_grade']}")
-        if "text_comment" in it.fields:
-            parts.append(f"comment {_preview(it.fields['text_comment'])}")
-        elif it.comment_skipped:
-            parts.append("comment already on Canvas, not re-sent")
-        if not it.fields:
-            parts.append("(nothing to send)")
-        print(f"    {it.student} ({it.user_id}):  " + "   ".join(parts))
-        for w in it.warnings:
-            print(f"      ! {w}")
-    print(f"  {len(plan.to_send)} student(s) to update")
-
-
 def verify_posted(it: PlannedGrade, sub: dict | None, gtype: str) -> list[str]:
     """Compare what Canvas now holds against what was sent."""
     if sub is None:
@@ -327,12 +297,13 @@ def verify_posted(it: PlannedGrade, sub: dict | None, gtype: str) -> list[str]:
     return problems
 
 
-def post_grade_plan(canvas: Canvas, plan: GradePlan) -> list[dict]:
+def post_grade_plan(canvas: Canvas, plan: GradePlan,
+                    reporter: Reporter = NULL) -> list[dict]:
     """One bulk update_grades call for the file, then a read-back check."""
     a = plan.assignment
     to_send = plan.to_send
-    print(f"\nPosting {len(to_send)} update(s) for {a.get('name')} "
-          f"({plan.source.path.name})...")
+    reporter.info(f"\nPosting {len(to_send)} update(s) for {a.get('name')} "
+                  f"({plan.source.path.name})...")
     job_state, message = "", ""
     try:
         progress = canvas.bulk_update_grades(
@@ -344,23 +315,24 @@ def post_grade_plan(canvas: Canvas, plan: GradePlan) -> list[dict]:
         job_state, message = "request failed", str(exc)
 
     if job_state == "completed":
-        print("  Canvas job completed.")
+        reporter.info("  Canvas job completed.")
     else:
-        print(f"  ! Canvas job {job_state or 'did not finish'}"
-              + (f": {message}" if message else "")
-              + ". Checking what was saved anyway.")
+        reporter.info(f"  ! Canvas job {job_state or 'did not finish'}"
+                      + (f": {message}" if message else "")
+                      + ". Checking what was saved anyway.")
 
     after = {s.get("user_id"): s
              for s in canvas.submissions_with_comments(plan.course_id, a["id"])}
     rows = []
     bad = 0
-    for it in plan.items:
+    for n, it in enumerate(plan.items, start=1):
+        reporter.progress(n, len(plan.items), it.student)
         sub = after.get(it.user_id)
         problems = verify_posted(it, sub, a.get("grading_type") or "points") \
             if it.fields else []
         if problems:
             bad += 1
-            print(f"  ! {it.student} ({it.user_id}): " + "; ".join(problems))
+            reporter.info(f"  ! {it.student} ({it.user_id}): " + "; ".join(problems))
         rows.append({
             "file": plan.source.path.name,
             "course_id": plan.course_id,
@@ -380,18 +352,34 @@ def post_grade_plan(canvas: Canvas, plan: GradePlan) -> list[dict]:
             "problems": "; ".join(problems),
         })
     if not bad:
-        print(f"  Verified: all {len(to_send)} update(s) are on Canvas.")
+        reporter.info(f"  Verified: all {len(to_send)} update(s) are on Canvas.")
     return rows
 
 
-def post_grades(canvas: Canvas, args, run_started: datetime) -> int:
-    """--post-grades: parse and check every file, show the plan, then post."""
+@dataclass
+class GradePlanSet:
+    """Every grade file checked against Canvas. Nothing has been posted."""
+    plans: list[GradePlan]
+    errors: list[str]                 # any error means nothing may be posted
+
+    @property
+    def total(self) -> int:
+        return sum(len(p.to_send) for p in self.plans)
+
+
+def plan_grades(canvas: Canvas, paths: list[Path], course_id: int | None = None,
+                allow_duplicate_comments: bool = False) -> GradePlanSet:
+    """Parse and check every grade file. Reads only; posts nothing.
+
+    A front end shows the plans (and errors), asks for confirmation, and
+    then calls post_grade_plans(). course_id None means each file's section
+    says which course it is in.
+    """
     plans: list[GradePlan] = []
     errors: list[str] = []
     rosters: dict[int, Roster] = {}
-
-    for name in args.post_grades:
-        path = Path(name)
+    for path in paths:
+        path = Path(path)
         try:
             gf = parse_grade_file(path)
         except (OSError, UnicodeDecodeError) as exc:
@@ -400,58 +388,51 @@ def post_grades(canvas: Canvas, args, run_started: datetime) -> int:
         except GradeFileError as exc:
             errors.append(str(exc))
             continue
-        plan, errs = plan_grade_file(canvas, gf, args.course, rosters,
-                                     args.allow_duplicate_comments)
+        plan, errs = plan_grade_file(canvas, gf, course_id, rosters,
+                                     allow_duplicate_comments)
         errors += errs
         if plan:
             plans.append(plan)
+    return GradePlanSet(plans, errors)
 
-    for plan in plans:
-        print_grade_plan(plan)
 
-    if errors:
-        print("\nErrors (nothing was posted):", file=sys.stderr)
-        for e in errors:
-            print(f"  {e}", file=sys.stderr)
-        return 1
+@dataclass
+class PostResult:
+    rows: list[dict]                  # one per student, also written to the log
+    log_path: Path | None             # None if the log could not be written
+    failed: int                       # updates Canvas does not show afterwards
 
-    total = sum(len(p.to_send) for p in plans)
-    if not total:
-        print("\nNothing to post.")
-        return 0
-    if args.dry_run:
-        print(f"\nDry run: {total} update(s) checked, nothing posted.")
-        return 0
-    if not args.yes:
-        if not sys.stdin.isatty():
-            print("\nNot posting without confirmation; rerun with --yes.",
-                  file=sys.stderr)
-            return 1
-        answer = input(f"\nPost {total} grade/comment update(s) to Canvas? [y/N] ")
-        if answer.strip().casefold() not in ("y", "yes"):
-            print("Cancelled; nothing posted.")
-            return 0
 
+def post_grade_plans(canvas: Canvas, plans: GradePlanSet, log_dir: Path,
+                     run_started: datetime, reporter: Reporter = NULL) -> PostResult:
+    """Post every plan, verify each against Canvas, write the CSV log.
+
+    Refuses a plan set that has errors: the caller must not get this far.
+    """
+    if plans.errors:
+        raise InvalidInput("grade files have errors; nothing was posted")
     rows: list[dict] = []
-    for plan in plans:
+    for plan in plans.plans:
+        if reporter.cancelled():
+            raise Cancelled("stopped before posting " + plan.source.path.name)
         if plan.to_send:
-            rows += post_grade_plan(canvas, plan)
+            rows += post_grade_plan(canvas, plan, reporter)
 
-    log_dir = Path(args.log_dir) if args.log_dir else Path(args.post_grades[0]).parent
-    log_path = log_dir / run_started.strftime("grade_post_log_%Y%m%d_%H%M%S.csv")
+    log_path: Path | None = Path(log_dir) / run_started.strftime(
+        "grade_post_log_%Y%m%d_%H%M%S.csv")
     try:
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         # BOM, like every other CSV here, so Excel reads accented names.
         with open(log_path, "w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
             writer.writeheader()
             writer.writerows(rows)
-        print(f"\nLog: {log_path}")
+        reporter.info(f"\nLog: {log_path}")
     except OSError as exc:
-        print(f"\nCould not write log {log_path}: {exc}", file=sys.stderr)
+        reporter.warning(f"\nCould not write log {log_path}: {exc}")
+        log_path = None
 
     failed = sum(1 for r in rows if r["problems"])
     if failed:
-        print(f"{failed} update(s) could not be verified; see the log.", file=sys.stderr)
-        return 1
-    return 0
+        reporter.warning(f"{failed} update(s) could not be verified; see the log.")
+    return PostResult(rows, log_path, failed)

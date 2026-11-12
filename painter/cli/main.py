@@ -15,7 +15,6 @@ from painter.cli.console import ConsoleReporter
 from painter.errors import CanvasHTTPError, PainterError
 from painter.events import emit
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
-from painter.services.grading import post_grades
 from painter.services.organize import organize_submissions
 from painter.services.quiz_export import export_quiz
 from painter.services.quiz_uploads import browser_quiz_uploads
@@ -229,7 +228,7 @@ def _main() -> int:
     canvas = Canvas(args.base_url, token)
 
     if args.post_grades:
-        return post_grades(canvas, args, run_started)
+        return commands.post_grades(canvas, args, run_started)
 
     if args.make_grade_files:
         return commands.grade_files(canvas, args)

@@ -360,7 +360,7 @@ from painter.services.roster_export import (  # noqa: F401
     ROSTER_CSV_COLUMNS, RosterExportRequest, RosterExportResult,
 )
 from painter.cli.commands import (  # noqa: F401  (old (canvas, args) signatures)
-    grade_files as make_grade_files, roster_csv as export_roster_csv,
+    grade_files as make_grade_files, post_grades, roster_csv as export_roster_csv,
 )
 from painter.services.organize import (  # noqa: F401
     RosterIndex, organize_submissions, read_roster_csv,
@@ -368,8 +368,10 @@ from painter.services.organize import (  # noqa: F401
 from painter.services.grading import (  # noqa: F401
     EXCUSED_WORDS, GradePlan, PASS_FAIL_WORDS, PlannedGrade, _grade_before,
     _norm_comment, _preview, grade_fields, plan_grade_file, post_grade_plan,
-    post_grades, print_grade_plan, resolve_grade_entry, verify_posted,
+    GradePlanSet, PostResult, plan_grades, post_grade_plans, resolve_grade_entry,
+    verify_posted,
 )
+from painter.cli.console import grade_plan_lines  # noqa: F401
 from painter.services.quiz_plan import (  # noqa: F401
     QuizExportPlan, find_student_column, quiz_export_plan,
 )

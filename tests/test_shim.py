@@ -10,7 +10,7 @@ def test_shim_reexports_the_package():
     import canvas_fetch_submissions as shim
     from painter.canvas.client import Canvas
     from painter.cli.main import main
-    from painter.services.grading import post_grades
+    from painter.cli.commands import post_grades
 
     assert shim.main is main and shim.Canvas is Canvas and shim.post_grades is post_grades
     assert "Download (and optionally extract) student submission files" in shim.__doc__
