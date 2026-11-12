@@ -132,7 +132,9 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
     new_quizzes_without_files: list[dict] = []
 
     for assign in assignments:
-        adir = assignment_folder(out_root, assign)
+        adir, note = assignment_folder(out_root, assign)
+        if note:
+            print(note, file=sys.stderr)
         due = DueDates(assign)
         base_str = fmt_ts(due.base, tz) or "no due date"
         is_new_quiz = quiz_kind(assign) == "new"
@@ -184,6 +186,8 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                 # complete (review finding 4).
                 try:
                     fresh = download(canvas, att["url"], target, att.get("size"))
+                    if fresh.note:
+                        print(fresh.note, file=sys.stderr)
                 except Exception as exc:
                     failures += 1
                     status_text = f"failed: {exc}"
@@ -195,11 +199,15 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                         unpack_dir = sdir / target.stem
                         if not fresh and unpack_dir.is_dir():
                             extracted_to = str(unpack_dir)   # done on an earlier run
-                        elif extract(target, unpack_dir):
-                            extracted_to = str(unpack_dir)
-                            print(f"      extracted -> {unpack_dir.name}/")
                         else:
-                            status_text += "; extract failed"
+                            unpacked = extract(target, unpack_dir)
+                            for note in unpacked.notes:
+                                print(note)
+                            if unpacked:
+                                extracted_to = str(unpack_dir)
+                                print(f"      extracted -> {unpack_dir.name}/")
+                            else:
+                                status_text += "; extract failed"
 
                 rows.append({
                     "assignment": assign["name"],

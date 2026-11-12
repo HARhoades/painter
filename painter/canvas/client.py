@@ -1,9 +1,9 @@
 """Canvas REST client: auth, retry, rate-limit pacing, pagination, downloads."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 import random
-import sys
 import time
 
 import requests
@@ -67,6 +67,16 @@ def backoff_delay(attempt: int, retry_after: float | None = None) -> float:
         return min(retry_after, BACKOFF_CAP)
     ceiling = min(BACKOFF_CAP, BACKOFF_BASE * (2 ** attempt))
     return ceiling / 2 + random.uniform(0, ceiling / 2)
+
+
+@dataclass
+class FetchResult:
+    """What fetch_file did. Truthy when the file was newly downloaded."""
+    fresh: bool
+    note: str | None = None      # e.g. size differs from what Canvas listed
+
+    def __bool__(self) -> bool:
+        return self.fresh
 
 
 # --------------------------------------------------------------------------
@@ -190,8 +200,9 @@ class Canvas:
         yield from self.paginate_url(f"{self.base}/api/v1{path}", params)
 
     def fetch_file(self, url: str, dest: Path, expected_size: int | None = None,
-                   auth: bool = False) -> bool:
-        """Stream a file to disk. Returns True if it was newly downloaded.
+                   auth: bool = False) -> "FetchResult":
+        """Stream a file to disk. The result is truthy if it was newly
+        downloaded; .note says if the size differs from what Canvas listed.
 
         Goes through _request, so throttling and 5xx are retried with
         backoff; a transfer cut off part-way is restarted from scratch up to
@@ -199,7 +210,7 @@ class Canvas:
         complete, so a failed run never leaves a truncated file in place.
         """
         if dest.exists() and (expected_size is None or dest.stat().st_size == expected_size):
-            return False  # already have it -- makes reruns cheap
+            return FetchResult(False)  # already have it -- makes reruns cheap
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(dest.name + ".part")
         for attempt in range(DOWNLOAD_ATTEMPTS):
@@ -220,11 +231,12 @@ class Canvas:
             except Exception:
                 tmp.unlink(missing_ok=True)
                 raise
+        note = None
         if expected_size is not None and tmp.stat().st_size != expected_size:
-            print(f"      ! {dest.name}: {tmp.stat().st_size} bytes, Canvas listed "
-                  f"{expected_size}", file=sys.stderr)
+            note = (f"      ! {dest.name}: {tmp.stat().st_size} bytes, Canvas listed "
+                    f"{expected_size}")
         tmp.replace(dest)
-        return True
+        return FetchResult(True, note)
 
     def rate_summary(self) -> str:
         s = self.stats

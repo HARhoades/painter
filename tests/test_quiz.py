@@ -121,26 +121,27 @@ def test_assignment_folder_is_named_by_id(tmp_path):
     """Review finding 3: same folder in every run; same-named assignments differ."""
     a = {"id": 7001, "name": "DATE Scenario"}
     b = {"id": 7009, "name": "DATE Scenario"}
-    assert assignment_folder(tmp_path, a) == tmp_path / "DATE-Scenario_7001"
-    assert assignment_folder(tmp_path, b) == tmp_path / "DATE-Scenario_7009"
+    assert assignment_folder(tmp_path, a) == (tmp_path / "DATE-Scenario_7001", None)
+    assert assignment_folder(tmp_path, b) == (tmp_path / "DATE-Scenario_7009", None)
 
 
-def test_assignment_folder_renames_one_legacy_folder(tmp_path, capsys):
+def test_assignment_folder_renames_one_legacy_folder(tmp_path):
     a = {"id": 7001, "name": "DATE Scenario"}
     (tmp_path / "03_DATE-Scenario" / "Doe-Jane_501").mkdir(parents=True)
-    got = assignment_folder(tmp_path, a)
+    got, note = assignment_folder(tmp_path, a)
     assert got == tmp_path / "DATE-Scenario_7001"
     assert (got / "Doe-Jane_501").is_dir() and not (tmp_path / "03_DATE-Scenario").exists()
-    assert "renamed 03_DATE-Scenario/" in capsys.readouterr().err
+    assert "renamed 03_DATE-Scenario/" in note
 
 
-def test_assignment_folder_leaves_ambiguous_legacy_folders(tmp_path, capsys):
+def test_assignment_folder_leaves_ambiguous_legacy_folders(tmp_path):
     a = {"id": 7001, "name": "DATE Scenario"}
     (tmp_path / "01_DATE-Scenario").mkdir()
     (tmp_path / "03_DATE-Scenario").mkdir()
-    assert assignment_folder(tmp_path, a) == tmp_path / "DATE-Scenario_7001"
+    got, note = assignment_folder(tmp_path, a)
+    assert got == tmp_path / "DATE-Scenario_7001"
     assert (tmp_path / "01_DATE-Scenario").is_dir() and (tmp_path / "03_DATE-Scenario").is_dir()
-    assert "could belong to any assignment" in capsys.readouterr().err
+    assert "could belong to any assignment" in note
 
 
 def roster():

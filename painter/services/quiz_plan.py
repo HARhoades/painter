@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder
@@ -28,7 +29,9 @@ def quiz_export_plan(canvas: Canvas, args, assignment: dict) -> QuizExportPlan |
     holding that section's answers plus a copy of the quiz content. Returns
     None when no selected student is assigned the quiz.
     """
-    adir = assignment_folder(Path(args.out), assignment)
+    adir, note = assignment_folder(Path(args.out), assignment)
+    if note:
+        print(note, file=sys.stderr)
     if not (args.section or args.student or args.by_section):
         return QuizExportPlan([adir])
     roster = Roster(canvas.sections(args.course),

@@ -206,7 +206,9 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
     if not url:
         raise RuntimeError("the report finished but Canvas gave no download link")
     dest.unlink(missing_ok=True)
-    canvas.fetch_file(url, dest, auth=True)
+    got = canvas.fetch_file(url, dest, auth=True)
+    if got.note:
+        print(got.note, file=sys.stderr)
     state.pop(ANSWERS_STATE_KEY, None)      # kept until now so a failed
     _save_state(state_path, state)          # download can resume the job
     return dest
@@ -310,7 +312,9 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
         raise RuntimeError(f"export {export['id']} finished but has no download link")
 
     dest.unlink(missing_ok=True)            # never treat an old file as cached
-    canvas.fetch_file(attachment["url"], dest, attachment.get("size"), auth=True)
+    got = canvas.fetch_file(attachment["url"], dest, attachment.get("size"), auth=True)
+    if got.note:
+        print(got.note, file=sys.stderr)
     if not zipfile.is_zipfile(dest):
         raise IOError(f"export {export['id']} download is not a zip package")
     state.pop(key, None)
@@ -368,7 +372,9 @@ def export_quiz(canvas: Canvas, args) -> int:
         print("None of the selected students are assigned this quiz; nothing "
               "exported.", file=sys.stderr)
         return 1
-    adir = assignment_folder(Path(args.out), assignment)
+    adir, note = assignment_folder(Path(args.out), assignment)
+    if note:
+        print(note, file=sys.stderr)
     primary = plan.dirs[0]
     stem = slug(assignment.get("name") or str(aid), 50)
     state_path = adir / EXPORT_STATE_FILE

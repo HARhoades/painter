@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import sys
 
 from painter.domain.naming import slug
 
@@ -27,8 +26,9 @@ def assignment_dir_name(assignment: dict) -> str:
     return f"{name}_{assignment['id']}"
 
 
-def assignment_folder(out_root: Path, assignment: dict) -> Path:
-    """The assignment's folder in the --out tree: <Name>_<id>.
+def assignment_folder(out_root: Path, assignment: dict) -> tuple[Path, str | None]:
+    """The assignment's folder in the --out tree, <Name>_<id>, and a note for
+    the user if something was renamed or left alone (else None).
 
     Older versions named it NN_<Name>, where NN depended on which assignments
     the run was filtered to. If the new folder does not exist yet and exactly
@@ -38,17 +38,16 @@ def assignment_folder(out_root: Path, assignment: dict) -> Path:
     """
     target = out_root / assignment_dir_name(assignment)
     if target.exists() or not out_root.is_dir():
-        return target
+        return target, None
     name = slug(assignment.get("name") or "assignment")
     pattern = re.compile(r"^\d{2,}_" + re.escape(name) + r"$")
     legacy = sorted(d for d in out_root.iterdir() if d.is_dir() and pattern.match(d.name))
     if len(legacy) == 1:
         legacy[0].rename(target)
-        print(f"  renamed {legacy[0].name}/ -> {target.name}/ (folders are now "
-              "named by assignment ID)", file=sys.stderr)
-    elif legacy:
-        print(f"  note: {', '.join(d.name for d in legacy)} are from an older "
-              f"version and could belong to any assignment named {name}; "
-              f"writing to {target.name}/ and leaving them as they are",
-              file=sys.stderr)
-    return target
+        return target, (f"  renamed {legacy[0].name}/ -> {target.name}/ (folders are "
+                        "now named by assignment ID)")
+    if legacy:
+        return target, (f"  note: {', '.join(d.name for d in legacy)} are from an older "
+                        f"version and could belong to any assignment named {name}; "
+                        f"writing to {target.name}/ and leaving them as they are")
+    return target, None

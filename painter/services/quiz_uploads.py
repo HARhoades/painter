@@ -124,11 +124,15 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
                                       or m.group(1))
                 target = folder / f"{question}__{fname}"
                 fresh = canvas.fetch_file(meta["url"], target, meta.get("size"))
+                if fresh.note:
+                    print(fresh.note, file=sys.stderr)
             else:
                 fname = safe_filename(requests.utils.unquote(
                     requests.utils.urlparse(url).path.rsplit("/", 1)[-1]) or "file")
                 target = folder / f"{question}__{fname}"
                 fresh = canvas.fetch_file(url, target, auth=(host == canvas_host))
+                if fresh.note:
+                    print(fresh.note, file=sys.stderr)
             saved += 1
             status = "downloaded" if fresh else "cached"
             print(f"    {status} {target.relative_to(base)}")

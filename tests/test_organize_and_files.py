@@ -113,18 +113,19 @@ def test_organize_copy_to_another_tree(tmp_path, capsys):
         organize_submissions(organize_args(src, roster, organize_to=str(src / "inside")))
 
 
-def test_extract_zip_refuses_paths_that_escape(tmp_path, capsys):
+def test_extract_zip_refuses_paths_that_escape(tmp_path):
     archive = tmp_path / "a.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("ok/main.py", "print(1)")
         zf.writestr("../evil.txt", "x")
         zf.writestr("__MACOSX/junk", "x")
     dest = tmp_path / "out"
-    assert extract(archive, dest) is True
+    got = extract(archive, dest)
+    assert got.ok is True
     assert (dest / "ok" / "main.py").read_text() == "print(1)"
     assert not (tmp_path / "evil.txt").exists()
     assert not (dest / "__MACOSX").exists()
-    assert "skipped unsafe path" in capsys.readouterr().out
+    assert any("skipped unsafe path" in n for n in got.notes)
 
 
 def test_extract_tar_and_non_archives(tmp_path):
@@ -134,11 +135,11 @@ def test_extract_tar_and_non_archives(tmp_path):
         info = tarfile.TarInfo("dir/hello.txt")
         info.size = len(data)
         tf.addfile(info, io.BytesIO(data))
-    assert extract(archive, tmp_path / "t") is True
+    assert extract(archive, tmp_path / "t").ok is True
     assert (tmp_path / "t" / "dir" / "hello.txt").read_bytes() == b"hello"
     plain = tmp_path / "notes.gz"
     plain.write_text("not an archive")
-    assert extract(plain, tmp_path / "n") is False
+    assert extract(plain, tmp_path / "n").ok is False
 
 
 def test_extract_single_file_compression(tmp_path):
@@ -148,7 +149,7 @@ def test_extract_single_file_compression(tmp_path):
         archive = tmp_path / f"data.csv{suffix}"
         archive.write_bytes(mod.compress(b"a,b\n1,2\n"))
         dest = tmp_path / f"out{suffix}"
-        assert extract(archive, dest) is True
+        assert extract(archive, dest).ok is True
         assert (dest / "data.csv").read_bytes() == b"a,b\n1,2\n"
 
 

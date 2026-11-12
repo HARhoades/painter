@@ -116,10 +116,10 @@ def test_unauthenticated_request_drops_the_bearer_header():
 def test_fetch_file_writes_atomically_and_caches(tmp_path):
     dest = tmp_path / "sub" / "a.bin"
     c = client(make_response("u", content=b"12345"))
-    assert c.fetch_file("u", dest, expected_size=5) is True
+    assert c.fetch_file("u", dest, expected_size=5).fresh is True
     assert dest.read_bytes() == b"12345"
     assert not dest.with_name("a.bin.part").exists()
-    assert c.fetch_file("u", dest, expected_size=5) is False     # cached: no request
+    assert c.fetch_file("u", dest, expected_size=5).fresh is False     # cached: no request
     assert len(c.session.requests) == 1
 
 
@@ -127,7 +127,7 @@ def test_fetch_file_restarts_a_cut_off_transfer(tmp_path):
     c = client(requests.ConnectionError(), make_response("u", content=b"ok"))
     # the first ConnectionError is retried inside _request (GET); add one that
     # surfaces from the transfer itself
-    assert c.fetch_file("u", tmp_path / "f") is True
+    assert c.fetch_file("u", tmp_path / "f").fresh is True
     assert (tmp_path / "f").read_bytes() == b"ok"
 
 
