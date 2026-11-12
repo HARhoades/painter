@@ -16,7 +16,16 @@ class PainterError(Exception):
 
 
 class InvalidInput(PainterError, ValueError):
-    """Something the user supplied cannot be used."""
+    """Something the user supplied cannot be used (a spec that matches
+    nothing, an unreadable file, options that do not go together)."""
+
+
+class MissingDependency(PainterError):
+    """An optional package (openpyxl, playwright) is needed and not installed."""
+
+
+class Cancelled(PainterError):
+    """The front end asked the service to stop (Reporter.cancelled())."""
 
 
 class CanvasHTTPError(requests.HTTPError, PainterError):

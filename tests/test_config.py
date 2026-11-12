@@ -28,3 +28,21 @@ def test_cli_no_longer_defaults_to_the_working_folder(fake_canvas, run_cli, monk
     run_cli("--base-url", "https://canvas.test", "--course", "100",
             "--assignment", "7001", "--browser-uploads")
     assert seen["p"] == str(default_browser_profile())
+
+
+def test_reporters(capsys):
+    from painter.cli.console import ConsoleReporter
+    from painter.events import NULL, RecordingReporter
+    r = ConsoleReporter()
+    r.info("a")
+    r.info("b", end="")
+    r.warning("c")
+    r.progress(1, 2)
+    out, err = capsys.readouterr()
+    assert (out, err) == ("a\nb", "c\n") and not r.cancelled()
+    rec = RecordingReporter(cancel_after=1)
+    rec.info("x")
+    rec.warning("y")
+    assert rec.text() == "x\ny" and rec.text("warning") == "y"
+    assert rec.cancelled() is False and rec.cancelled() is True
+    NULL.info("ignored")
