@@ -154,13 +154,21 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
     if failed:
         notes.append(f"file uploads: {failed} link(s) could not be downloaded "
                      "(see the uploads log)")
+    write_uploads_logs(plan, stem, log)
+    return saved, notes
+
+
+def write_uploads_logs(plan: QuizExportPlan, stem: str, log: list[dict]) -> list[Path]:
+    """<folder>/<Quiz>_uploads/uploads_log.csv in each output folder, holding
+    the rows of the students filed there (unmatched rows go to the first)."""
+    paths = []
     for d in plan.dirs:
         rows = [x for x in log if (plan.dir_of or {}).get(x["user_id"] or None,
                                                           plan.dirs[0]) == d]
-        if not rows:
-            continue
-        write_csv(d / f"{stem}_uploads" / "uploads_log.csv", list(rows[0].keys()), rows)
-    return saved, notes
+        if rows:
+            paths.append(write_csv(d / f"{stem}_uploads" / "uploads_log.csv",
+                                   list(rows[0].keys()), rows))
+    return paths
 
 
 # ---- File Upload answers via a real browser (Playwright) ----------------------
@@ -490,14 +498,9 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
         else:
             ctx.close()
 
-    log_paths: list[Path] = []
-    for d in plan.dirs:
-        rows = [x for x in log if (plan.dir_of or {}).get(x["user_id"], plan.dirs[0]) == d]
-        if rows:
-            p = write_csv(d / f"{stem}_uploads" / "uploads_log.csv",
-                          list(rows[0].keys()), rows)
-            log_paths.append(p)
-            reporter.info(f"Log: {p}")
+    log_paths = write_uploads_logs(plan, stem, log)
+    for p in log_paths:
+        reporter.info(f"Log: {p}")
     reporter.info(f"\n{saved} file(s) saved, {no_files} student(s) with no upload, "
           f"{failed} problem(s).")
     if reporter.cancelled():

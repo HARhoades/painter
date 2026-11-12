@@ -173,3 +173,10 @@ def test_a12_job_state_is_handled_by_resumable_job(tmp_path):
     b.clear()
     discard_if_empty(p)
     assert not p.exists()
+
+
+def test_a13_one_uploads_log_writer():
+    assert where(['"uploads_log.csv"'], strings=True) == {"services/quiz_uploads.py"}
+    import ast
+    src = (PKG / "services/quiz_uploads.py").read_text(encoding="utf-8")
+    assert src.count('"uploads_log.csv"') == 1
