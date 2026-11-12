@@ -156,3 +156,79 @@ def test_browser_uploads_dry_run_and_missing_playwright(canvas, fake_canvas, tmp
     with pytest.raises(MissingDependency):          # Playwright is not in the test env
         browser_quiz_uploads(canvas, BrowserUploadsRequest(100, (7003,), tmp_path, limit=1))
     assert capsys.readouterr() == ("", "")
+
+
+# ---- cancelling part-way still leaves a record of what was done ----------------
+A1_GRADES = """\
+[ASSIGNMENT]
+title=DATE Scenario
+id=7001
+
+[SECTION]
+title=A1-8
+instructor=Rhoades
+id=11
+
+[STUDENT]
+name=Doe, Jane
+id=501
+grade=9
+comments=
+"""
+
+
+def test_cancel_between_grade_files_still_writes_the_post_log(canvas, fake_canvas, tmp_path):
+    from datetime import datetime
+    from painter.errors import Cancelled
+    from painter.services.grading import plan_grades, post_grade_plans
+    a1 = tmp_path / "A1.txt"
+    a1.write_text(A1_GRADES, encoding="utf-8")
+    plans = plan_grades(canvas, [a1, _grades(tmp_path)])
+    assert not plans.errors and len(plans.plans) == 2
+    with pytest.raises(Cancelled, match="stopped before posting A2.txt") as exc:
+        post_grade_plans(canvas, plans, tmp_path / "logs", datetime(2026, 11, 12),
+                         RecordingReporter(cancel_after=1))
+    assert len(fake_canvas.posted_forms) == 1            # A1 went out, A2 did not
+    res = exc.value.result
+    assert [r["student"] for r in res.rows] == ["Doe, Jane"]
+    assert res.log_path is not None and res.log_path.exists()
+
+
+def test_cancel_before_any_grade_file_writes_no_log(canvas, fake_canvas, tmp_path):
+    from datetime import datetime
+    from painter.errors import Cancelled
+    from painter.services.grading import plan_grades, post_grade_plans
+    plans = plan_grades(canvas, [_grades(tmp_path)])
+    with pytest.raises(Cancelled) as exc:
+        post_grade_plans(canvas, plans, tmp_path / "logs", datetime.now(),
+                         RecordingReporter(cancel_after=0))
+    assert exc.value.result.rows == [] and exc.value.result.log_path is None
+    assert not (tmp_path / "logs").exists() and fake_canvas.posted_forms == []
+
+
+def test_cancel_during_organize_still_writes_its_log(tmp_path):
+    from golden.scenarios import make_tree, write_roster
+    from painter.errors import Cancelled
+    from painter.services.organize import OrganizeRequest, execute_organize, plan_organize
+    src = tmp_path / "A"
+    make_tree(src)
+    plan = plan_organize(OrganizeRequest(src, write_roster(tmp_path / "roster.csv")))
+    with pytest.raises(Cancelled, match="log written") as exc:
+        execute_organize(plan, RecordingReporter(cancel_after=1))
+    res = exc.value.result
+    assert res.done == 1 and res.log_path.exists()
+    logged = res.log_path.read_text(encoding="utf-8-sig")
+    assert logged.count("moved") == 1
+
+
+def test_cancel_during_download_still_writes_the_manifest(canvas, tmp_path):
+    from painter.errors import Cancelled
+    from painter.services.submissions import DownloadRequest, download_submissions
+    out = tmp_path / "o"
+    with pytest.raises(Cancelled, match="manifest written") as exc:
+        download_submissions(canvas, DownloadRequest(100, out, excel_log=False),
+                             RecordingReporter(cancel_after=1))
+    res = exc.value.result
+    assert len(res.rows) == 1 and res.manifest.exists()
+    assert len(res.manifest.read_text(encoding="utf-8-sig").splitlines()) == 2
+    assert not list(out.rglob("*.part"))

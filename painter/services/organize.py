@@ -251,6 +251,7 @@ def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeR
         d.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
     done = skipped = 0
+    stopped = False
     matched = [i for i in plan.items if i.uid is not None]
     for n, it in enumerate(plan.items, start=1):
         if it.uid is None:
@@ -259,7 +260,8 @@ def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeR
                          "Result": f"left in place: {it.how}"})
             continue
         if reporter.cancelled():
-            raise Cancelled(f"stopped after {done} item(s)")
+            stopped = True        # still write the log of what was moved
+            break
         reporter.progress(done + skipped + 1, len(matched), it.label)
         if it.exists or it.target.exists():
             result = "skipped: already exists in the section folder"
@@ -287,4 +289,7 @@ def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeR
         w.writeheader()
         w.writerows(rows)
     reporter.info(f"\nLog: {log}")
-    return OrganizeResult(done, skipped, log)
+    result = OrganizeResult(done, skipped, log)
+    if stopped:
+        raise Cancelled(f"stopped after {done} item(s); log written", result)
+    return result

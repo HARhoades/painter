@@ -412,14 +412,32 @@ def post_grade_plans(canvas: Canvas, plans: GradePlanSet, log_dir: Path,
     if plans.errors:
         raise InvalidInput("grade files have errors; nothing was posted")
     rows: list[dict] = []
+    stopped_before = None
     for plan in plans.plans:
         if reporter.cancelled():
-            raise Cancelled("stopped before posting " + plan.source.path.name)
+            stopped_before = plan.source.path.name
+            break
         if plan.to_send:
             rows += post_grade_plan(canvas, plan, reporter)
 
-    log_path: Path | None = Path(log_dir) / run_started.strftime(
-        "grade_post_log_%Y%m%d_%H%M%S.csv")
+    # The log is written whenever anything was posted, including when the
+    # caller cancelled part-way: it is the record of what changed on Canvas.
+    log_path = _write_post_log(rows, Path(log_dir), run_started, reporter) if rows else None
+
+    failed = sum(1 for r in rows if r["problems"])
+    if failed:
+        reporter.warning(f"{failed} update(s) could not be verified; see the log.")
+    result = PostResult(rows, log_path, failed)
+    if stopped_before is not None:
+        raise Cancelled(f"stopped before posting {stopped_before}; "
+                        f"{len(rows)} student row(s) posted earlier are in the log",
+                        result)
+    return result
+
+
+def _write_post_log(rows: list[dict], log_dir: Path, run_started: datetime,
+                    reporter: Reporter) -> Path | None:
+    log_path = log_dir / run_started.strftime("grade_post_log_%Y%m%d_%H%M%S.csv")
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         # BOM, like every other CSV here, so Excel reads accented names.
@@ -428,11 +446,7 @@ def post_grade_plans(canvas: Canvas, plans: GradePlanSet, log_dir: Path,
             writer.writeheader()
             writer.writerows(rows)
         reporter.info(f"\nLog: {log_path}")
+        return log_path
     except OSError as exc:
         reporter.warning(f"\nCould not write log {log_path}: {exc}")
-        log_path = None
-
-    failed = sum(1 for r in rows if r["problems"])
-    if failed:
-        reporter.warning(f"{failed} update(s) could not be verified; see the log.")
-    return PostResult(rows, log_path, failed)
+        return None

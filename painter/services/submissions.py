@@ -167,6 +167,7 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
     out_root = Path(req.out_root)
     rows = []
     failures = 0
+    stopped = False
     new_quizzes_without_files: list[dict] = []
 
     for n_assign, assign in enumerate(assignments, start=1):
@@ -217,7 +218,8 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
 
             for att, fname in zip(attachments, attachment_filenames(attachments)):
                 if reporter.cancelled():
-                    raise Cancelled(f"stopped after {len(rows)} file(s); rerun to resume")
+                    stopped = True    # finish below: manifest and log still written
+                    break
                 if req.flat:
                     fname = flat_filename(sub, fname)
                 target = sdir / fname
@@ -274,6 +276,10 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
                     "path": str(target),
                     "extracted_to": extracted_to,
                 })
+            if stopped:
+                break
+        if stopped:
+            break
 
         if is_new_quiz and not with_files:
             # New Quiz submissions are LTI launches (basic_lti_launch): the
@@ -283,7 +289,8 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
             reporter.info(f"  {submitted} submitted, but New Quizzes keeps File Upload "
                           "answers inside the quiz tool, not on the Canvas submission, "
                           "so there are no attachments to download here.")
-    reporter.progress(len(assignments), len(assignments))
+    if not stopped:
+        reporter.progress(len(assignments), len(assignments))
 
     result = DownloadResult(rows, failures, new_quizzes_without_files)
     if new_quizzes_without_files:
@@ -325,4 +332,7 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
                              "(pip install openpyxl, or pass --no-xlsx).")
         except Exception as exc:
             reporter.warning(f"Excel log failed: {exc}")
+    if stopped:
+        raise Cancelled(f"stopped after {len(rows)} file(s); manifest written, "
+                        "rerun to resume", result)
     return result

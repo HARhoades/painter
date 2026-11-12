@@ -38,7 +38,17 @@ class BrowserUnavailable(PainterError):
 
 
 class Cancelled(PainterError):
-    """The front end asked the service to stop (Reporter.cancelled())."""
+    """The front end asked the service to stop (Reporter.cancelled()).
+
+    A service that had already changed something (posted grades, moved
+    folders, saved files) stops at the next safe point, still writes its
+    log or manifest, and attaches what it did as .result, so the caller
+    knows exactly what happened before the stop.
+    """
+
+    def __init__(self, message: str = "", result=None):
+        super().__init__(message)
+        self.result = result
 
 
 class CanvasHTTPError(requests.HTTPError, PainterError):
