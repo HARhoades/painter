@@ -171,7 +171,6 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
                     print("  a student analysis report is already being generated; "
                           "waiting for it to finish")
                     told = True
-                print(f"retrying in {min(wait, remaining)}")
                 canvas.sleep(min(wait, remaining))
                 wait = min(POLL_CAP, wait * POLL_FACTOR)
         state[ANSWERS_STATE_KEY] = {"course_id": course_id,
