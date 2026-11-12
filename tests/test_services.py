@@ -77,3 +77,21 @@ def test_post_refuses_plans_with_errors_and_honours_cancel(canvas, fake_canvas, 
         post_grade_plans(canvas, good, tmp_path, datetime.now(),
                          RecordingReporter(cancel_after=0))
     assert fake_canvas.posted_forms == []
+
+
+def test_organize_plan_changes_nothing_then_execute(tmp_path, capsys):
+    from golden.scenarios import make_tree, write_roster
+    from painter.services.organize import OrganizeRequest, execute_organize, plan_organize
+    src = tmp_path / "A"
+    make_tree(src)
+    roster = write_roster(tmp_path / "roster.csv")
+    before = sorted(p.name for p in src.iterdir())
+    plan = plan_organize(OrganizeRequest(src, roster))
+    assert sorted(p.name for p in src.iterdir()) == before          # read only
+    assert [i.label for i in plan.unmatched] == ["Stranger_999"]
+    assert plan.counts == {"A1-8": 1, "A2-8": 1}
+    rep = RecordingReporter()
+    res = execute_organize(plan, rep)
+    assert (res.done, res.skipped) == (2, 0) and res.log_path.exists()
+    assert (src / "A1-8" / "Doe-Jane_501" / "essay.pdf").exists()
+    assert capsys.readouterr() == ("", "")

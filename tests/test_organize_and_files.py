@@ -6,7 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from painter.services.organize import RosterIndex, organize_submissions, read_roster_csv
+from painter.cli.commands import organize as organize_submissions
+from painter.errors import InvalidInput
+from painter.services.organize import RosterIndex, read_roster_csv
 from painter.storage.files import extract
 
 ROSTER_ROWS = [
@@ -46,14 +48,14 @@ def test_roster_index_section_filter():
     index = RosterIndex(ROSTER_ROWS, ["A1"])
     assert set(index.students) == {"501"}
     assert index.match("Roe-Rick_502") == (None, "student not in the selected --section")
-    with pytest.raises(SystemExit):
+    with pytest.raises(InvalidInput):
         RosterIndex(ROSTER_ROWS, ["zzz"])
 
 
 def test_read_roster_csv_rejects_other_files(tmp_path):
     p = tmp_path / "x.csv"
     p.write_text("a,b\n1,2\n", encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with pytest.raises(InvalidInput):
         read_roster_csv(p)
     assert len(read_roster_csv(write_roster(tmp_path / "roster.csv"))) == 4
 
@@ -109,7 +111,7 @@ def test_organize_copy_to_another_tree(tmp_path, capsys):
     assert organize_submissions(organize_args(src, roster, organize_to=str(dest))) == 0
     assert (dest / "A1-8" / "Doe-Jane_501" / "essay.pdf").exists()
     assert (src / "Doe-Jane_501" / "essay.pdf").exists()
-    with pytest.raises(SystemExit):
+    with pytest.raises(InvalidInput):
         organize_submissions(organize_args(src, roster, organize_to=str(src / "inside")))
 
 

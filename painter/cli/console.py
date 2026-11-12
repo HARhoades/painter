@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 
 from painter.services.grading import GradePlan, _preview
+from painter.services.organize import OrganizePlan
 
 
 class ConsoleReporter:
@@ -51,3 +52,27 @@ def grade_plan_lines(plan: GradePlan) -> list[str]:
             lines.append(f"      ! {w}")
     lines.append(f"  {len(plan.to_send)} student(s) to update")
     return lines
+
+
+def organize_plan_lines(plan: OrganizePlan, dry_run: bool) -> tuple[list[str], list[str]]:
+    """(stdout lines, stderr lines) describing an organize plan."""
+    out = [f"{'Dry run: ' if dry_run else ''}{plan.verb.capitalize()} {plan.src_root} -> "
+           f"{plan.dest_root} into {len(plan.section_dirs)} section folder(s)"]
+    for it in plan.items:
+        if it.uid is None:
+            continue
+        out.append(f"  {it.label} -> {it.target.relative_to(plan.dest_root)}"
+                   f"{'  (by name)' if it.how == 'name' else ''}{it.note}"
+                   f"{'  SKIPPED, exists' if it.exists else ''}")
+    out.append("")
+    for sec in sorted(plan.section_dirs, key=str.casefold):
+        out.append(f"  {plan.section_dirs[sec]:<20} {plan.counts.get(sec, 0):>4} item(s)")
+    err: list[str] = []
+    unmatched = plan.unmatched
+    if unmatched:
+        err.append(f"\n{len(unmatched)} item(s) not matched to the roster, left in place:")
+        err += [f"  {it.label}  ({it.how})" for it in unmatched]
+    if plan.ambiguous:
+        err.append(f"\nnote: {plan.ambiguous} student(s) are in more than "
+                   "one section; pass --section to choose")
+    return out, err

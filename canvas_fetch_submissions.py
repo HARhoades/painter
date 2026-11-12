@@ -363,8 +363,10 @@ from painter.cli.commands import (  # noqa: F401  (old (canvas, args) signatures
     grade_files as make_grade_files, post_grades, roster_csv as export_roster_csv,
 )
 from painter.services.organize import (  # noqa: F401
-    RosterIndex, organize_submissions, read_roster_csv,
+    OrganizeItem, OrganizePlan, OrganizeRequest, OrganizeResult, RosterIndex,
+    execute_organize, plan_organize, read_roster_csv,
 )
+from painter.cli.commands import organize as organize_submissions  # noqa: F401
 from painter.services.grading import (  # noqa: F401
     EXCUSED_WORDS, GradePlan, PASS_FAIL_WORDS, PlannedGrade, _grade_before,
     _norm_comment, _preview, grade_fields, plan_grade_file, post_grade_plan,

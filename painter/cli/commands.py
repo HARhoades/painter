@@ -11,10 +11,11 @@ from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas
-from painter.cli.console import ConsoleReporter, grade_plan_lines
+from painter.cli.console import ConsoleReporter, grade_plan_lines, organize_plan_lines
 from painter.domain.selection import Selection
 from painter.services.grade_files import GradeFilesRequest, make_grade_files
 from painter.services.grading import plan_grades, post_grade_plans
+from painter.services.organize import OrganizeRequest, execute_organize, plan_organize
 from painter.services.roster_export import RosterExportRequest, export_roster_csv
 
 CONSOLE = ConsoleReporter()
@@ -80,3 +81,19 @@ def post_grades(canvas: Canvas, args, run_started: datetime) -> int:
     log_dir = Path(args.log_dir) if args.log_dir else Path(args.post_grades[0]).parent
     result = post_grade_plans(canvas, plans, log_dir, run_started, CONSOLE)
     return 1 if result.failed else 0
+
+
+def organize(args) -> int:
+    """--organize: show the plan; carry it out unless --dry-run."""
+    plan = plan_organize(OrganizeRequest(
+        src=Path(args.organize), roster_csv=Path(args.roster),
+        section_specs=tuple(args.section or ()),
+        dest=Path(args.organize_to) if args.organize_to else None))
+    out, err = organize_plan_lines(plan, args.dry_run)
+    for line in out:
+        print(line)
+    for line in err:
+        print(line, file=sys.stderr)
+    if not args.dry_run:
+        execute_organize(plan, CONSOLE)
+    return 0

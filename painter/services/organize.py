@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import re
 import shutil
-import sys
 
 from painter.domain.matching import _letters
 from painter.domain.naming import slug
 from painter.domain.roster import best_matches, catch_all_sections
+from painter.errors import Cancelled, InvalidInput
+from painter.events import NULL, Reporter
 
 
 def read_roster_csv(path: Path) -> list[dict]:
@@ -19,11 +21,11 @@ def read_roster_csv(path: Path) -> list[dict]:
         with open(path, newline="", encoding="utf-8-sig") as fh:
             rows = list(csv.DictReader(fh))
     except OSError as exc:
-        raise SystemExit(f"Can't read roster {path}: {exc}")
+        raise InvalidInput(f"Can't read roster {path}: {exc}")
     need = {"Student Canvas ID", "Section Name"}
     missing = need - set(rows[0].keys() if rows else need)
     if not rows or missing:
-        raise SystemExit(f"{path} doesn't look like a --roster-csv file"
+        raise InvalidInput(f"{path} doesn't look like a --roster-csv file"
                          + (f" (missing {', '.join(sorted(missing))})" if missing else
                             " (no rows)"))
     return rows
@@ -51,13 +53,13 @@ class RosterIndex:
         if section_specs:
             keep = set()
             if any(not (s or "").strip() for s in section_specs):
-                raise SystemExit("--section needs a value; an empty one would "
+                raise InvalidInput("--section needs a value; an empty one would "
                                  "match everything.")
             for spec in section_specs:
                 hits = set(best_matches(spec, self.sections,
                                         lambda n: (self.sections[n],), lambda n: (n,)))
                 if not hits:
-                    raise SystemExit(f"--section {spec!r} matches no section in the roster")
+                    raise InvalidInput(f"--section {spec!r} matches no section in the roster")
                 keep |= hits
             self.sections = {n: i for n, i in self.sections.items() if n in keep}
             by_student = {u: [s for s in secs if s in keep]
@@ -117,32 +119,84 @@ class RosterIndex:
         return None, "no roster match"
 
 
-def organize_submissions(args) -> int:
-    """--organize: move (or copy) student folders into one folder per section."""
-    src_root = Path(args.organize)
+@dataclass
+class OrganizeRequest:
+    src: Path                              # folder to sort (a run or assignment folder)
+    roster_csv: Path                       # from --roster-csv
+    section_specs: tuple[str, ...] = ()    # only these sections
+    dest: Path | None = None               # copy into this tree instead of moving
+
+
+@dataclass
+class OrganizeItem:
+    """One file or folder found while planning, matched to the roster or not."""
+    path: Path
+    label: str                             # path shown to the user, relative to src
+    how: str                               # "id" / "name", or why it did not match
+    uid: str | None = None
+    student: str = ""
+    section: str = ""
+    target: Path | None = None             # where it goes (None: left in place)
+    exists: bool = False                   # target already there: skipped
+    note: str = ""                         # " [in A, B; used A]" for several sections
+
+
+@dataclass
+class OrganizePlan:
+    """What an organize run would do. Nothing on disk has changed yet."""
+    src_root: Path
+    dest_root: Path
+    copying: bool
+    section_dirs: dict[str, str]           # section name -> folder name
+    make_dirs: list[Path]                  # section folders to create
+    items: list[OrganizeItem]              # in the order they were found
+    counts: dict[str, int]                 # section -> items it receives
+    ambiguous: int                         # students in more than one section
+
+    @property
+    def verb(self) -> str:
+        return "copy" if self.copying else "move"
+
+    @property
+    def unmatched(self) -> list[OrganizeItem]:
+        return [i for i in self.items if i.uid is None]
+
+
+@dataclass
+class OrganizeResult:
+    done: int
+    skipped: int
+    log_path: Path
+
+
+LOG_COLUMNS = ["Item", "Student", "Student Canvas ID", "Section", "Destination",
+               "Matched By", "Result"]
+
+
+def plan_organize(req: OrganizeRequest) -> OrganizePlan:
+    """Work out where every student folder or file goes. Reads only."""
+    src_root = Path(req.src)
     if not src_root.is_dir():
-        raise SystemExit(f"--organize: {src_root} is not a folder")
-    index = RosterIndex(read_roster_csv(Path(args.roster)), args.section)
+        raise InvalidInput(f"--organize: {src_root} is not a folder")
+    index = RosterIndex(read_roster_csv(Path(req.roster_csv)),
+                        list(req.section_specs) or None)
     if not index.sections:
-        raise SystemExit("The roster has no section names to organize by.")
-    dest_root = Path(args.organize_to) if args.organize_to else src_root
+        raise InvalidInput("The roster has no section names to organize by.")
+    dest_root = Path(req.dest) if req.dest else src_root
     copying = dest_root.resolve() != src_root.resolve()
     if copying and dest_root.resolve().is_relative_to(src_root.resolve()):
-        raise SystemExit("--organize-to can't be inside the folder being organized")
+        raise InvalidInput("--organize-to can't be inside the folder being organized")
 
     # A section that holds every student (a course-wide default) never
     # receives anyone, so it doesn't get a folder.
     section_dirs = {sec: slug(sec, 40) for sec in index.sections
                     if sec not in index.catch_all}
     reserved = {slug(sec, 40) for sec in index.sections}
-    dry = args.dry_run
-    verb = "copy" if copying else "move"
-    log_rows: list[dict] = []
-    unmatched: list[str] = []
-    counts: dict[str, int] = {}
+    plan = OrganizePlan(src_root, dest_root, copying, section_dirs, [], [], {},
+                        len(index.ambiguous_section))
 
     def is_assignment_dir(d: Path) -> bool:
-        """A folder of student folders (e.g. 03_DATE-Scenario from --out)."""
+        """A folder of student folders (e.g. DATE-Scenario_7001 from --out)."""
         if index.match(d.name)[0]:
             return False
         try:
@@ -151,16 +205,15 @@ def organize_submissions(args) -> int:
         except OSError:
             return False
 
-    def sort_folder(src: Path, dest: Path, label: str) -> None:
+    def walk(src: Path, dest: Path, label: str) -> None:
         items = sorted(src.iterdir(), key=lambda x: x.name.casefold())
         # Section folders go where students are: here, unless this is a run
         # folder that only holds assignment folders.
         holds_students = any(index.match(i.name)[0] for i in items) or not any(
             i.is_dir() and i.name not in reserved and is_assignment_dir(i)
             for i in items)
-        if holds_students and not dry:
-            for d in section_dirs.values():
-                (dest / d).mkdir(parents=True, exist_ok=True)
+        if holds_students:
+            plan.make_dirs += [dest / d for d in section_dirs.values()]
         for item in items:
             if item.name.startswith(".") or item.name.startswith("organize_log_"):
                 continue
@@ -171,68 +224,67 @@ def organize_submissions(args) -> int:
             uid, how = index.match(item.name)
             if uid is None:
                 if item.is_dir() and is_assignment_dir(item):
-                    sort_folder(item, dest / item.name, f"{label}{item.name}/")
+                    walk(item, dest / item.name, f"{label}{item.name}/")
                     continue
-                unmatched.append(f"{label}{item.name}  ({how})")
-                log_rows.append({"Item": f"{label}{item.name}", "Student": "",
-                                 "Student Canvas ID": "", "Section": "",
-                                 "Destination": "", "Matched By": "",
-                                 "Result": f"left in place: {how}"})
+                plan.items.append(OrganizeItem(item, f"{label}{item.name}", how))
                 continue
-            row = index.students[uid]
             sec = index.section_of[uid]
             target = dest / section_dirs[sec] / item.name
-            result = "dry run" if dry else f"{verb}d"
-            if target.exists():
-                result = "skipped: already exists in the section folder"
-            elif not dry:
-                if copying:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if item.is_dir():
-                        shutil.copytree(item, target)
-                    else:
-                        shutil.copy2(item, target)
-                else:
-                    item.rename(target)
-            if not result.startswith("skipped"):
-                counts[sec] = counts.get(sec, 0) + 1
-            note = ""
+            entry = OrganizeItem(
+                item, f"{label}{item.name}", how, uid,
+                index.students[uid].get("Student Full Name", ""), sec, target,
+                exists=target.exists())
             if uid in index.ambiguous_section:
-                note = (" [in " + ", ".join(index.ambiguous_section[uid])
-                        + f"; used {sec}]")
-            print(f"  {label}{item.name} -> {target.relative_to(dest_root)}"
-                  f"{'  (by name)' if how == 'name' else ''}{note}"
-                  f"{'  SKIPPED, exists' if result.startswith('skipped') else ''}")
-            log_rows.append({"Item": f"{label}{item.name}",
-                             "Student": row.get("Student Full Name", ""),
-                             "Student Canvas ID": uid, "Section": sec,
-                             "Destination": str(target), "Matched By": how,
-                             "Result": result + note})
+                entry.note = (" [in " + ", ".join(index.ambiguous_section[uid])
+                              + f"; used {sec}]")
+            if not entry.exists:
+                plan.counts[sec] = plan.counts.get(sec, 0) + 1
+            plan.items.append(entry)
 
-    print(f"{'Dry run: ' if dry else ''}{verb.capitalize()} {src_root} -> "
-          f"{dest_root} into {len(section_dirs)} section folder(s)")
-    sort_folder(src_root, dest_root, "")
+    walk(src_root, dest_root, "")
+    return plan
 
-    print()
-    for sec in sorted(section_dirs, key=str.casefold):
-        print(f"  {section_dirs[sec]:<20} {counts.get(sec, 0):>4} item(s)")
-    if unmatched:
-        print(f"\n{len(unmatched)} item(s) not matched to the roster, left in place:",
-              file=sys.stderr)
-        for u in unmatched:
-            print(f"  {u}", file=sys.stderr)
-    if index.ambiguous_section:
-        print(f"\nnote: {len(index.ambiguous_section)} student(s) are in more than "
-              "one section; pass --section to choose", file=sys.stderr)
 
-    if not dry:
-        dest_root.mkdir(parents=True, exist_ok=True)
-        log = dest_root / f"organize_log_{datetime.now():%Y%m%d_%H%M%S}.csv"
-        with open(log, "w", newline="", encoding="utf-8-sig") as fh:
-            w = csv.DictWriter(fh, fieldnames=["Item", "Student", "Student Canvas ID",
-                                               "Section", "Destination",
-                                               "Matched By", "Result"])
-            w.writeheader()
-            w.writerows(log_rows)
-        print(f"\nLog: {log}")
-    return 0
+def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeResult:
+    """Carry out a plan: create section folders, move or copy, write the log."""
+    for d in plan.make_dirs:
+        d.mkdir(parents=True, exist_ok=True)
+    rows: list[dict] = []
+    done = skipped = 0
+    matched = [i for i in plan.items if i.uid is not None]
+    for n, it in enumerate(plan.items, start=1):
+        if it.uid is None:
+            rows.append({"Item": it.label, "Student": "", "Student Canvas ID": "",
+                         "Section": "", "Destination": "", "Matched By": "",
+                         "Result": f"left in place: {it.how}"})
+            continue
+        if reporter.cancelled():
+            raise Cancelled(f"stopped after {done} item(s)")
+        reporter.progress(done + skipped + 1, len(matched), it.label)
+        if it.exists or it.target.exists():
+            result = "skipped: already exists in the section folder"
+            skipped += 1
+        else:
+            if plan.copying:
+                it.target.parent.mkdir(parents=True, exist_ok=True)
+                if it.path.is_dir():
+                    shutil.copytree(it.path, it.target)
+                else:
+                    shutil.copy2(it.path, it.target)
+            else:
+                it.path.rename(it.target)
+            result = f"{plan.verb}d"
+            done += 1
+        rows.append({"Item": it.label, "Student": it.student,
+                     "Student Canvas ID": it.uid, "Section": it.section,
+                     "Destination": str(it.target), "Matched By": it.how,
+                     "Result": result + it.note})
+
+    plan.dest_root.mkdir(parents=True, exist_ok=True)
+    log = plan.dest_root / f"organize_log_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    with open(log, "w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.DictWriter(fh, fieldnames=LOG_COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    reporter.info(f"\nLog: {log}")
+    return OrganizeResult(done, skipped, log)

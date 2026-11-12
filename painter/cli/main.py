@@ -15,7 +15,6 @@ from painter.cli.console import ConsoleReporter
 from painter.errors import CanvasHTTPError, PainterError
 from painter.events import emit
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
-from painter.services.organize import organize_submissions
 from painter.services.quiz_export import export_quiz
 from painter.services.quiz_uploads import browser_quiz_uploads
 from painter.services.submissions import run_download
@@ -204,7 +203,7 @@ def _main() -> int:
     if args.organize:
         if not args.roster:
             p.error("--organize needs --roster FILE (make one with --roster-csv)")
-        return organize_submissions(args)
+        return commands.organize(args)
     if args.quiz_uploads and (not args.export_quiz or args.no_answers):
         p.error("--quiz-uploads needs --export-quiz (and the answers report, "
                 "so not --no-answers)")
