@@ -66,3 +66,13 @@ def test_due_dates_precedence():
         "2026-09-08T00:00:00Z", "section override (most lenient of 2)")
     assert due.effective(503, [11]) == ("2026-09-20T00:00:00Z", "student override")
     assert due.effective(501, [11, 13]) == (None, "section override (no due date)")
+
+
+def test_attachment_filenames_keep_clashing_names_apart():
+    """Review finding 7."""
+    from painter.domain.naming import attachment_filenames
+    atts = [{"id": 1, "display_name": "essay.pdf"}, {"id": 2, "display_name": "Essay.PDF"},
+            {"id": 3, "display_name": "notes.txt"}, {"id": 4, "display_name": "README"},
+            {"id": 5, "display_name": "README"}]
+    assert attachment_filenames(atts) == [
+        "essay__a1.pdf", "Essay__a2.PDF", "notes.txt", "README__a4", "README__a5"]

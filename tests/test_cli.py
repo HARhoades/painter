@@ -343,3 +343,20 @@ def test_typed_errors_are_still_requests_http_errors():
     import requests
     from painter.errors import AuthFailed, NotFound, PainterError
     assert issubclass(NotFound, requests.HTTPError) and issubclass(AuthFailed, PainterError)
+
+
+def test_same_named_attachments_do_not_overwrite(fake_canvas, run_cli, tmp_path):
+    """Review finding 7: two essay.pdf in one folder, and a rerun is all cached."""
+    fake_canvas.file_bodies["/f/3"] = b"%PDF-1.4 second draft!!"
+    fake_canvas.submissions[7001][501]["attachments"].append(
+        {"id": 3, "display_name": "essay.pdf", "url": "https://files.test/f/3",
+         "size": len(fake_canvas.file_bodies["/f/3"])})
+    out_dir = tmp_path / "o"
+    argv = (*COMMON, "--out", str(out_dir), "--assignment", "7001", "--no-xlsx")
+    code, _, err = run_cli(*argv)
+    assert code == 0, err
+    jane = out_dir / "DATE-Scenario_7001" / "Doe-Jane_501"
+    assert sorted(p.name for p in jane.iterdir()) == ["essay__a1.pdf", "essay__a3.pdf"]
+    assert (jane / "essay__a3.pdf").read_bytes() == b"%PDF-1.4 second draft!!"
+    _, out, _ = run_cli(*argv)
+    assert "downloaded" not in out

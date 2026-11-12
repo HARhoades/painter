@@ -9,7 +9,7 @@ import sys
 from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts
-from painter.domain.naming import flat_filename, safe_filename, slug, student_dir_name
+from painter.domain.naming import attachment_filenames, flat_filename, slug, student_dir_name
 from painter.domain.roster import Roster, assigned_students, select_students
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import log_filename, write_run_log
@@ -174,8 +174,7 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
             print(f"  {where}"
                   f"  submitted {fmt_ts(sub.get('submitted_at'), tz) or '-'}{flag}")
 
-            for att in attachments:
-                fname = safe_filename(att.get("display_name") or att.get("filename", ""))
+            for att, fname in zip(attachments, attachment_filenames(attachments)):
                 if args.flat:
                     fname = flat_filename(sub, fname)
                 target = sdir / fname

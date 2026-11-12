@@ -22,6 +22,30 @@ def safe_filename(name: str) -> str:
     return name or "file"
 
 
+def attachment_filenames(attachments: list[dict]) -> list[str]:
+    """Safe, distinct filenames for one submission's attachments, in order.
+
+    Names that clash (case-insensitively, as on Windows) all get the
+    attachment ID appended -- report__a123.pdf -- so neither overwrites the
+    other and every rerun maps each attachment to the same file. Names that
+    don't clash are left as they are (review finding 7).
+    """
+    names = [safe_filename(a.get("display_name") or a.get("filename", ""))
+             for a in attachments]
+    counts: dict[str, int] = {}
+    for n in names:
+        counts[n.casefold()] = counts.get(n.casefold(), 0) + 1
+    out = []
+    for att, name in zip(attachments, names):
+        if counts[name.casefold()] > 1:
+            stem, dot, ext = name.rpartition(".")
+            if not stem:                       # no extension, or ".hidden"
+                stem, dot, ext = name, "", ""
+            name = f"{stem}__a{att.get('id', 'x')}{dot}{ext}"
+        out.append(name)
+    return out
+
+
 def student_dir_name(sub: dict) -> str:
     user = sub.get("user") or {}
     name = user.get("sortable_name") or user.get("name") or "Anonymous"
