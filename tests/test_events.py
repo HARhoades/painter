@@ -113,3 +113,60 @@ def test_cancel_during_a_download_retry_stops_the_run_cleanly(fake_canvas, tmp_p
     res = exc.value.result
     assert [r["status"] for r in res.rows] == ["downloaded"]    # not "failed: ..."
     assert res.failures == 0 and res.manifest.exists()
+
+
+# ---- what a GUI sees from each service --------------------------------------------
+def test_events_from_quiz_export_and_report_uploads(fake_canvas, tmp_path):
+    from golden.scenarios import add_new_quiz
+    from painter.domain.selection import Selection
+    from painter.events import ItemDone
+    from painter.services.quiz_export import QuizExportRequest, export_quiz
+    add_new_quiz(fake_canvas, report_rows=(
+        "Name,ID,Q1\r\nJane Doe,501,https://canvas.test/files/9/download\r\n"))
+    fake_canvas.extra[("GET", "/api/v1/files/9")] = {
+        "id": 9, "display_name": "essay.pdf", "size": 2, "url": "https://files.test/f/9"}
+    fake_canvas.file_bodies["/f/9"] = b"hi"
+    rep = RecordingReporter()
+    export_quiz(Canvas(BASE, "t"), QuizExportRequest(
+        100, (7003,), tmp_path, Selection(), uploads=True, course_export=False), rep)
+    assert [s.name for s in rep.of(Stage)] == [
+        "Quiz content", "Student answers", "File uploads linked from the report"]
+    kinds = [(e.kind, e.key, e.status) for e in rep.of(ItemDone)]
+    assert ("upload", "essay.pdf", "downloaded") in kinds
+    assert ("file", "Quiz-1_qti.zip", "exported") in kinds
+
+
+def test_cancel_during_report_uploads_still_writes_the_log(fake_canvas, tmp_path):
+    from painter.services.quiz_plan import QuizExportPlan
+    from painter.services.quiz_uploads import download_report_uploads
+    raw = tmp_path / "r.csv"
+    raw.write_text("Name,ID,Q1,Q2\nJane Doe,501,https://bucket.s3.amazonaws.com/a.pdf,"
+                   "https://bucket.s3.amazonaws.com/b.pdf\n", encoding="utf-8")
+    from painter.canvas.client import FetchResult
+    c = Canvas(BASE, "t")
+
+    def fake_fetch(url, dest, *a, **k):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return FetchResult(True)
+    c.fetch_file = fake_fetch
+    with pytest.raises(Cancelled, match="uploads log written"):
+        download_report_uploads(c, raw, QuizExportPlan([tmp_path / "q"]), 100, "Quiz",
+                                RecordingReporter(cancel_after=1))
+    log = tmp_path / "q" / "Quiz_uploads" / "uploads_log.csv"
+    assert log.exists() and log.read_text(encoding="utf-8-sig").count("downloaded") == 1
+
+
+def test_grade_posting_reports_each_student(fake_canvas, tmp_path):
+    from datetime import datetime
+    from golden.scenarios import GRADES
+    from painter.events import ItemDone
+    from painter.services.grading import plan_grades, post_grade_plans
+    p = tmp_path / "A2.txt"
+    p.write_text(GRADES, encoding="utf-8")
+    c = Canvas(BASE, "t")
+    rep = RecordingReporter()
+    post_grade_plans(c, plan_grades(c, [p]), tmp_path, datetime(2026, 1, 1), rep)
+    assert rep.of(Stage) == [Stage("Posting A2.txt", total=2)]
+    assert [(e.key, e.status) for e in rep.of(ItemDone)] == [
+        ("Roe, Rick", "verified"), ("De La Cruz, Ana", "verified")]

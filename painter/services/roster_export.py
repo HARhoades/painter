@@ -9,7 +9,7 @@ from painter.domain.roster import (
     Roster, section_instructors, split_name,
 )
 from painter.domain.selection import Selection
-from painter.events import NULL, Reporter, emit, watches_canvas
+from painter.events import NULL, ItemDone, Reporter, emit, watches_canvas
 from painter.storage.tabular import write_csv
 
 
@@ -80,6 +80,7 @@ def export_roster_csv(canvas: Canvas, req: RosterExportRequest,
                              r["Section Name"].casefold()))
 
     path = write_csv(Path(req.path), ROSTER_CSV_COLUMNS, rows)
+    reporter.event(ItemDone("file", path.name, "written", f"{len(rows)} line(s)", path))
 
     students = len({r["Student Canvas ID"] for r in rows})
     extra = len(rows) - students

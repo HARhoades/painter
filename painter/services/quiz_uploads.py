@@ -16,7 +16,7 @@ from painter.config import default_browser_profile
 from painter.errors import (
     BrowserUnavailable, Cancelled, InvalidInput, MissingDependency,
 )
-from painter.events import NULL, Reporter, watches_canvas
+from painter.events import NULL, ActionNeeded, ItemDone, Reporter, Stage, watches_canvas
 from painter.domain.assignments import quiz_kind, require_one
 from painter.domain.matching import same_words
 from painter.domain.naming import safe_filename, slug, student_folder_name
@@ -82,9 +82,15 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
         return 0, [_no_links_note(header, body)]
 
     reporter.info(f"  {len(links)} file link(s) found in the report")
+    reporter.event(Stage("File uploads linked from the report", total=len(links)))
     saved, notes, log = 0, [], []
+    stopped = False
     seen: set[tuple[int | None, str]] = set()
-    for r, c, url in links:
+    for n, (r, c, url) in enumerate(links, start=1):
+        if reporter.cancelled():
+            stopped = True
+            break
+        reporter.progress(n - 1, len(links), url)
         row = body[r]
         uid = uid_of.get(row[col_student]) if col_student is not None else None
         if plan.selected is not None and uid not in plan.selected:
@@ -100,7 +106,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
             who, base = "unmatched", plan.dirs[0]
         folder = base / f"{stem}_uploads" / who
         question = slug(header[c] if c < len(header) else f"col{c}", 30)
-        status, fname = "", ""
+        status, fname, target = "", "", None
         try:
             fname, target, fetch = _report_link_target(canvas, url, canvas_host,
                                                        folder, question)
@@ -110,12 +116,16 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
             saved += 1
             status = "downloaded" if fresh else "cached"
             reporter.info(f"    {status} {target.relative_to(base)}")
+        except Cancelled:              # during a retry pause; this link not saved
+            stopped = True
+            break
         except (requests.RequestException, OSError, KeyError) as exc:
             status = f"failed: {exc}"
             reporter.info(f"    ! {who}: {url}: {exc}")
         log.append({"student_folder": who, "user_id": uid or "",
                     "report_column": header[c] if c < len(header) else c,
                     "url": url, "file": fname, "status": status})
+        reporter.event(ItemDone("upload", fname or url, status, who, target))
 
     if col_student is None:
         notes.append("file uploads: could not tell which report column is the "
@@ -125,6 +135,10 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
         notes.append(f"file uploads: {failed} link(s) could not be downloaded "
                      "(see the uploads log)")
     write_uploads_logs(plan, stem, log)
+    if stopped:
+        raise Cancelled(f"stopped; {saved} linked file(s) saved, uploads log written")
+    if links:
+        reporter.progress(len(links), len(links))
     return saved, notes
 
 
@@ -287,6 +301,7 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
 
     with (open_browser or PlaywrightQuizBrowser)(canvas, req, reporter) as browser:
         browser.sign_in()
+        reporter.event(Stage("Opening each student in SpeedGrader", total=len(run.todo)))
         for n, (uid, _sub, sess) in enumerate(run.todo, 1):
             if reporter.cancelled():
                 break                 # still close the browser and write the log
@@ -319,6 +334,7 @@ class _UploadsRun:
         self.failed += 1
         self.log.append({"student_folder": who, "user_id": uid, "quiz_session": sess,
                          "question": "", "file": "", "size": "", "status": status})
+        self.reporter.event(ItemDone("student", who, status))
 
 
 def _plan_uploads(canvas: Canvas, req: BrowserUploadsRequest,
@@ -384,6 +400,7 @@ def _visit_student(run: _UploadsRun, browser, n: int, uid: int, sess) -> bool:
         reporter.info("  (no uploaded files)")
         run.log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
                         "question": "", "file": "", "size": "", "status": "no files"})
+        reporter.event(ItemDone("student", who, "no files"))
         return False
     reporter.info(f"  {len(files)} file(s)")
     for f in files:
@@ -396,6 +413,8 @@ def _visit_student(run: _UploadsRun, browser, n: int, uid: int, sess) -> bool:
         run.log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
                         "question": f["position"], "file": f["name"],
                         "size": f["size"] or "", "status": status})
+        reporter.event(ItemDone("upload", target.name, status, who, target))
+    reporter.event(ItemDone("student", who, f"{len(files)} file(s)"))
     return True
 
 
@@ -541,6 +560,7 @@ class PlaywrightQuizBrowser:
     def sign_in(self) -> None:
         """Open the course; if Canvas wants a sign-in, wait for the user."""
         reporter, req, page = self.reporter, self.req, self.page
+        reporter.event(Stage("Signing in to Canvas"))
         reporter.info("Opening Canvas ...")
         try:
             # "commit" returns as soon as the server answers, so an SSO
@@ -553,11 +573,16 @@ class PlaywrightQuizBrowser:
             reporter.info("Sign in to Canvas in the browser window (SSO / CAC / 2FA as "
                   "usual). This continues by itself once Canvas has loaded; "
                   f"waiting up to {req.signin_timeout:.0f}s.")
+            reporter.event(ActionNeeded(
+                "Sign in to Canvas in the browser window (SSO / CAC / 2FA as usual). "
+                "This continues by itself once Canvas has loaded."))
             deadline = time.monotonic() + req.signin_timeout
             last_note = time.monotonic()
             # Polling with wait_for_timeout keeps Playwright processing
             # events while you sign in (a blocking input() would not).
             while self._signed_in_page() is None and time.monotonic() < deadline:
+                if reporter.cancelled():
+                    raise Cancelled("stopped while waiting for you to sign in")
                 page.wait_for_timeout(1000)
                 if time.monotonic() - last_note > 30:
                     last_note = time.monotonic()

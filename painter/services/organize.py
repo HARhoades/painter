@@ -11,7 +11,7 @@ from painter.domain.matching import best_matches, letters_key
 from painter.domain.naming import slug
 from painter.domain.roster import catch_all_sections
 from painter.errors import Cancelled, InvalidInput
-from painter.events import NULL, Reporter
+from painter.events import NULL, ItemDone, Reporter, Stage
 from painter.storage.tabular import read_records, write_csv
 
 
@@ -252,6 +252,7 @@ def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeR
     done = skipped = 0
     stopped = False
     matched = [i for i in plan.items if i.uid is not None]
+    reporter.event(Stage(f"{plan.verb.capitalize()} into section folders", total=len(matched)))
     for n, it in enumerate(plan.items, start=1):
         if it.uid is None:
             rows.append({"Item": it.label, "Student": "", "Student Canvas ID": "",
@@ -280,6 +281,7 @@ def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeR
                      "Student Canvas ID": it.uid, "Section": it.section,
                      "Destination": str(it.target), "Matched By": it.how,
                      "Result": result + it.note})
+        reporter.event(ItemDone("folder", it.label, result, it.note.strip(), it.target))
 
     log = write_csv(plan.dest_root / f"organize_log_{datetime.now():%Y%m%d_%H%M%S}.csv",
                     LOG_COLUMNS, rows)

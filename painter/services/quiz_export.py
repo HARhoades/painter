@@ -15,7 +15,7 @@ from painter.storage.atomic import atomic_write
 from painter.canvas.client import Canvas
 from painter.domain.selection import Selection
 from painter.errors import Cancelled, InvalidInput, NotFound
-from painter.events import NULL, Reporter, watches_canvas
+from painter.events import NULL, ItemDone, Reporter, Stage, watches_canvas
 from painter.canvas.jobs import (
     POLL_CAP, POLL_FACTOR, POLL_START, ResumableJob, discard_if_empty, poll_until,
 )
@@ -432,6 +432,7 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
     run = _plan_export(canvas, req, reporter)
     if isinstance(run, QuizExportResult):
         return run
+    reporter.event(Stage("Quiz content"))
     if run.kind == "classic":
         if _classic_content(run):
             return QuizExportResult(EXPORTED)                 # dry run
@@ -552,6 +553,7 @@ def _answers_stage(run: _ExportRun) -> None:
     if reporter.cancelled():
         raise Cancelled("stopped before the student analysis report")
     reporter.info("Student answers (student analysis report):")
+    reporter.event(Stage("Student answers"))
     raw = run.adir / f".{run.stem}_student-answers.download"
     try:
         run_quiz_report(run.canvas, run.cid, run.aid, run.state_path, raw,
@@ -589,6 +591,7 @@ def _course_export_stage(run: _ExportRun, quiz: dict, items: list[dict]) -> None
     if reporter.cancelled():
         raise Cancelled("stopped before the course export")
     reporter.info("Course export (Common Cartridge) of this quiz's assignment:")
+    reporter.event(Stage("Course export"))
     tmp_cc = run.adir / f".{run.stem}_course-export.download"
     try:
         run_content_export(run.canvas, run.cid, "common_cartridge",
@@ -627,6 +630,7 @@ def _finish_export(run: _ExportRun) -> QuizExportResult:
             if p.exists():
                 exported.append(p)
                 reporter.info(f"  {p}  ({p.stat().st_size:,} bytes)")
+                reporter.event(ItemDone("file", p.name, "exported", str(d), p))
     for w_ in run.warnings:
         reporter.warning(f"  ! {w_}")
     reporter.info(f"API use: {run.canvas.rate_summary()}")

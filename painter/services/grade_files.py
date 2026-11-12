@@ -9,7 +9,7 @@ from painter.canvas.client import Canvas
 from painter.domain.naming import slug
 from painter.domain.roster import Roster, resolve_sections, section_instructors
 from painter.errors import InvalidInput
-from painter.events import NULL, Reporter, emit, watches_canvas
+from painter.events import NULL, ItemDone, Reporter, emit, watches_canvas
 from painter.domain.assignments import require_one
 
 
@@ -175,6 +175,7 @@ def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
         if path.exists() and not req.force:
             reporter.info(f"  ! {path} exists; not overwritten (use --force)")
             result.kept.append(path)
+            reporter.event(ItemDone("file", path.name, "kept", section_name, path))
             continue
         path.write_text(
             render_grade_file(assignment, label, section,
@@ -182,6 +183,7 @@ def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
             encoding="utf-8")
         reporter.info(f"  {path}  ({len(students)} students)")
         result.written.append(path)
+        reporter.event(ItemDone("file", path.name, "written", section_name, path))
 
     reporter.info(f"\n{len(result.written)} file(s) written to {out_dir}")
     return result

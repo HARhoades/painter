@@ -12,7 +12,7 @@ from painter.domain.naming import attachment_filenames, flat_filename, slug, stu
 from painter.domain.roster import Roster
 from painter.domain.selection import Selection
 from painter.errors import Cancelled
-from painter.events import NULL, Note, Reporter, emit, watches_canvas
+from painter.events import NULL, ItemDone, Note, Reporter, Stage, emit, watches_canvas
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
 from painter.storage.tabular import read_records, write_csv
@@ -135,6 +135,8 @@ class _DownloadRun:
     rows: list[dict] = field(default_factory=list)
     failures: int = 0
     stopped: bool = False                  # cancelled; finish and raise
+    stage_done: int = 0                    # files done / to do in this assignment
+    stage_total: int = 0
     new_quizzes_without_files: list[dict] = field(default_factory=list)
 
 
@@ -149,12 +151,9 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
     """
     run, assignments = _start_download(canvas, req, reporter)
     for n, assign in enumerate(assignments, start=1):
-        reporter.progress(n - 1, len(assignments), assign["name"])
-        _download_assignment(run, assign)
+        _download_assignment(run, assign, n, len(assignments))
         if run.stopped:
             break
-    if not run.stopped:
-        reporter.progress(len(assignments), len(assignments))
     return _finish_download(run)
 
 
@@ -183,7 +182,7 @@ def _start_download(canvas: Canvas, req: DownloadRequest,
     return _DownloadRun(canvas, req, reporter, tz, roster, student_ids, section_ids), assignments
 
 
-def _download_assignment(run: _DownloadRun, assign: dict) -> None:
+def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int) -> None:
     req, reporter = run.req, run.reporter
     adir, note = assignment_folder(Path(req.out_root), assign)
     if note:
@@ -193,8 +192,8 @@ def _download_assignment(run: _DownloadRun, assign: dict) -> None:
     is_new_quiz = quiz_kind(assign) == "new"
     reporter.info(f"\n[{assign['id']}] {assign['name']}  (due {base_str})"
                   + ("  [New Quiz]" if is_new_quiz else ""))
-    submitted = with_files = 0
-
+    submitted = 0
+    todo = []                 # (submission, attachments): counted before any download
     for sub in run.canvas.submissions(req.course_id, assign["id"], req.history):
         if run.student_ids is not None and sub.get("user_id") not in run.student_ids:
             continue
@@ -202,9 +201,15 @@ def _download_assignment(run: _DownloadRun, assign: dict) -> None:
             continue
         submitted += 1
         attachments = collect_attachments(sub, req.history)
-        if not attachments:
-            continue
-        with_files += 1
+        if attachments:
+            todo.append((sub, attachments))
+    with_files = len(todo)
+    run.stage_done, run.stage_total = 0, sum(len(a) for _, a in todo)
+    reporter.event(Stage(f"Downloading {assign['name']}", total=run.stage_total,
+                         step=step, steps=steps))
+    reporter.progress(0, run.stage_total, assign["name"])
+
+    for sub, attachments in todo:
         _download_submission(run, assign, adir, due, sub, attachments)
         if run.stopped:
             return
@@ -276,6 +281,10 @@ def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDa
             return
         run.rows.append({**common, "filename": fname, "status": status_text,
                          "path": str(target), "extracted_to": extracted_to})
+        run.stage_done += 1
+        run.reporter.progress(run.stage_done, run.stage_total, fname)
+        run.reporter.event(ItemDone("file", fname, status_text,
+                                    common["student"], target))
 
 
 def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,

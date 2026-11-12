@@ -10,7 +10,7 @@ import requests
 
 from painter.canvas.client import Canvas
 from painter.errors import Cancelled, InvalidInput, NotFound
-from painter.events import NULL, Reporter, watches_canvas
+from painter.events import NULL, ItemDone, Reporter, Stage, watches_canvas
 from painter.domain.matching import StudentMatcher, same_words
 from painter.domain.roster import Roster
 from painter.services.grade_files import (
@@ -331,6 +331,7 @@ def post_grade_plan(canvas: Canvas, plan: GradePlan,
     to_send = plan.to_send
     reporter.info(f"\nPosting {len(to_send)} update(s) for {a.get('name')} "
                   f"({plan.source.path.name})...")
+    reporter.event(Stage(f"Posting {plan.source.path.name}", total=len(plan.items)))
     job_state, message = "", ""
     try:
         progress = canvas.bulk_update_grades(
@@ -360,6 +361,10 @@ def post_grade_plan(canvas: Canvas, plan: GradePlan,
         if problems:
             bad += 1
             reporter.info(f"  ! {it.student} ({it.user_id}): " + "; ".join(problems))
+        reporter.event(ItemDone("grade", it.student,
+                                "problem" if problems else
+                                ("verified" if it.fields else "nothing to send"),
+                                "; ".join(problems)))
         rows.append({
             "file": plan.source.path.name,
             "course_id": plan.course_id,

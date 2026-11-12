@@ -105,7 +105,12 @@ def test_download_service_result_progress_and_cancel(canvas, tmp_path, capsys):
         100, tmp_path / "o", assignment_ids=(7001,), excel_log=False), rep)
     assert res.failures == 0 and len(res.rows) == 2 and res.manifest.exists()
     assert {r["status"] for r in res.rows} == {"downloaded"}
-    assert rep.progress_events[-1][:2] == (1, 1)
+    # per file, within the assignment's stage
+    assert [p[:2] for p in rep.progress_events] == [(0, 2), (1, 2), (2, 2)]
+    from painter.events import ItemDone, Stage
+    assert rep.of(Stage) == [Stage("Downloading DATE Scenario", total=2, step=1, steps=1)]
+    assert [(e.key, e.status) for e in rep.of(ItemDone)] == [
+        ("essay.pdf", "downloaded"), ("analysis.zip", "downloaded")]
     with pytest.raises(Cancelled, match="rerun to resume"):
         download_submissions(canvas, DownloadRequest(
             100, tmp_path / "c", excel_log=False), RecordingReporter(cancel_after=1))
