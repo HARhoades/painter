@@ -363,21 +363,80 @@ class QuizExportResult:
     warnings: list[str] = field(default_factory=list)
 
 
+@dataclass
+class _ExportRun:
+    """One quiz export in progress: what the stages share."""
+    canvas: Canvas
+    req: QuizExportRequest
+    reporter: Reporter
+    assignment: dict
+    kind: str                              # "new" or "classic"
+    plan: QuizExportPlan
+    adir: Path                             # the assignment's folder (job state lives here)
+    stem: str                              # file-name prefix from the quiz name
+    shared: list[Path] = field(default_factory=list)    # written once, copied to every folder
+    per_dir: list[Path] = field(default_factory=list)   # already written into each folder
+    warnings: list[str] = field(default_factory=list)
+    answers_missing: bool = False
+    course_incomplete: bool = False
+
+    @property
+    def cid(self) -> int:
+        return self.req.course_id
+
+    @property
+    def aid(self) -> int:
+        return self.req.assignment_ids[0]
+
+    @property
+    def primary(self) -> Path:
+        return self.plan.dirs[0]
+
+    @property
+    def state_path(self) -> Path:
+        return self.adir / EXPORT_STATE_FILE
+
+
 def export_quiz(canvas: Canvas, req: QuizExportRequest,
                 reporter: Reporter = NULL) -> QuizExportResult:
-    """Download one quiz's student answers and its content."""
+    """Download one quiz's student answers and its content.
+
+    Stages, in order: plan (which quiz, which students, which folders),
+    content (Classic QTI export, or New Quiz JSON + QTI + report), student
+    answers (+ uploads linked from them), course export, and the summary.
+    """
+    run = _plan_export(canvas, req, reporter)
+    if isinstance(run, QuizExportResult):
+        return run
+    if run.kind == "classic":
+        if _classic_content(run):
+            return QuizExportResult(EXPORTED)                 # dry run
+    else:
+        content = _new_quiz_content(run)
+        if content is None:
+            return QuizExportResult(EXPORTED)                 # dry run
+        quiz, items = content
+        if req.answers:
+            _answers_stage(run)
+        if req.course_export:
+            _course_export_stage(run, quiz, items)
+    return _finish_export(run)
+
+
+def _plan_export(canvas: Canvas, req: QuizExportRequest,
+                 reporter: Reporter) -> _ExportRun | QuizExportResult:
     assignment = require_one(canvas, req.course_id, req.assignment_ids,
                              "--export-quiz needs exactly one --assignment "
                              "(the quiz's assignment ID; see --list-assignments).")
-    cid, aid = req.course_id, req.assignment_ids[0]
+    aid = req.assignment_ids[0]
     kind = quiz_kind(assignment)
     if kind is None:
         raise InvalidInput(f"Assignment {aid} ({assignment.get('name')}) is not a quiz.")
     reporter.info(f"[{aid}] {assignment.get('name')}  "
           f"({'New Quiz' if kind == 'new' else 'Classic Quiz'})")
 
-    plan = quiz_export_plan(canvas, cid, req.out_root, assignment, req.selection,
-                            req.by_section, reporter)
+    plan = quiz_export_plan(canvas, req.course_id, req.out_root, assignment,
+                            req.selection, req.by_section, reporter)
     if plan is None:
         reporter.warning("None of the selected students are assigned this quiz; nothing "
               "exported.")
@@ -385,141 +444,158 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
     adir, note = assignment_folder(Path(req.out_root), assignment)
     if note:
         reporter.warning(note)
-    primary = plan.dirs[0]
-    stem = slug(assignment.get("name") or str(aid), 50)
-    state_path = adir / EXPORT_STATE_FILE
-    shared: list[Path] = []      # written once, copied into every folder
-    per_dir: list[Path] = []     # already written into each folder
-    warnings: list[str] = []
-    answers_missing = False      # exit 3
-    course_incomplete = False    # exit 2
+    return _ExportRun(canvas, req, reporter, assignment, kind, plan, adir,
+                      slug(assignment.get("name") or str(aid), 50))
 
-    if kind == "classic":
-        quiz_id = assignment.get("quiz_id")
-        if not quiz_id:
-            raise InvalidInput("Classic quiz with no quiz_id on its assignment.")
-        if req.dry_run:
-            reporter.info(f"Dry run: would export Classic quiz {quiz_id} as QTI to {primary}")
-            return QuizExportResult(EXPORTED)
-        dest = primary / f"{stem}_qti.zip"
-        run_content_export(canvas, cid, "qti", {"quizzes": [quiz_id]}, state_path,
-                           adir / f".{stem}_qti.download", req.timeout, reporter
-                           ).replace(dest)
-        shared.append(dest)
-        if req.answers:
-            warnings.append("student answers are only implemented for New Quizzes; "
+
+def _classic_content(run: _ExportRun) -> bool:
+    """Classic Quiz: Canvas's own QTI export. Returns True for a dry run."""
+    quiz_id = run.assignment.get("quiz_id")
+    if not quiz_id:
+        raise InvalidInput("Classic quiz with no quiz_id on its assignment.")
+    if run.req.dry_run:
+        run.reporter.info(f"Dry run: would export Classic quiz {quiz_id} as QTI to "
+                          f"{run.primary}")
+        return True
+    dest = run.primary / f"{run.stem}_qti.zip"
+    run_content_export(run.canvas, run.cid, "qti", {"quizzes": [quiz_id]}, run.state_path,
+                       run.adir / f".{run.stem}_qti.download", run.req.timeout,
+                       run.reporter).replace(dest)
+    run.shared.append(dest)
+    if run.req.answers:
+        run.warnings.append("student answers are only implemented for New Quizzes; "
                             "this Classic Quiz was exported without them")
-            answers_missing = True
-    else:
-        quiz = canvas.new_quiz(cid, aid)
-        items = canvas.new_quiz_items(cid, aid)
-        ident = "g" + __import__("hashlib").md5(f"{cid}:{aid}".encode()).hexdigest()
-        builder = QtiBuilder(quiz, ident)
-        for it in QtiBuilder.ordered(items):
-            builder.add(it)
-        in_qti = sum(1 for r in builder.report if r["In QTI"] == "yes")
-        reporter.info(f"  {len(items)} item(s); {in_qti} converted to QTI")
-        for r in builder.report:
-            mark = " " if r["In QTI"] == "yes" else "!"
-            label = r["Question Type"] or r["Entry Type"]
-            note = f"  -- {r['Notes']}" if r["Notes"] else ""
-            reporter.info(f"   {mark} {str(r['Position']):>3}  {label:<16} "
-                  f"{(r['Title'] or '')[:40]}{note}")
-        if req.dry_run:
-            what = ["request the student analysis report"] if req.answers else []
-            if req.course_export:
-                what.append("start a course export")
-            reporter.info("Dry run: nothing written" + (", did not " + " or ".join(what)
-                                               if what else "") + ".")
-            reporter.info("Output folder(s): " + ", ".join(str(d) for d in plan.dirs))
-            return QuizExportResult(EXPORTED)
-        if not items:
-            warnings.append("the quiz has no items")
+        run.answers_missing = True
+    return False
 
-        json_path = primary / f"{stem}_new-quiz.json"
-        with atomic_write(json_path, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps({
-                "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-                "canvas_host": canvas.base, "course_id": cid, "assignment_id": aid,
-                "assignment_name": assignment.get("name"),
-                "quiz": quiz, "items": items}, indent=2, ensure_ascii=False))
-        json.loads(json_path.read_text(encoding="utf-8"))    # round-trip check
-        shared.append(json_path)
 
-        qti_path = primary / f"{stem}_qti.zip"
-        builder.write_zip(qti_path)
-        verify_qti_zip(qti_path, in_qti)
-        shared.append(qti_path)
+def _new_quiz_content(run: _ExportRun) -> tuple[dict, list[dict]] | None:
+    """New Quiz: the items as JSON, a QTI package and a conversion report.
+    Returns (quiz, items), or None for a dry run."""
+    canvas, cid, aid, reporter = run.canvas, run.cid, run.aid, run.reporter
+    quiz = canvas.new_quiz(cid, aid)
+    items = canvas.new_quiz_items(cid, aid)
+    ident = "g" + __import__("hashlib").md5(f"{cid}:{aid}".encode()).hexdigest()
+    builder = QtiBuilder(quiz, ident)
+    for it in QtiBuilder.ordered(items):
+        builder.add(it)
+    in_qti = sum(1 for r in builder.report if r["In QTI"] == "yes")
+    reporter.info(f"  {len(items)} item(s); {in_qti} converted to QTI")
+    for r in builder.report:
+        mark = " " if r["In QTI"] == "yes" else "!"
+        label = r["Question Type"] or r["Entry Type"]
+        note = f"  -- {r['Notes']}" if r["Notes"] else ""
+        reporter.info(f"   {mark} {str(r['Position']):>3}  {label:<16} "
+              f"{(r['Title'] or '')[:40]}{note}")
+    if run.req.dry_run:
+        what = ["request the student analysis report"] if run.req.answers else []
+        if run.req.course_export:
+            what.append("start a course export")
+        reporter.info("Dry run: nothing written" + (", did not " + " or ".join(what)
+                                           if what else "") + ".")
+        reporter.info("Output folder(s): " + ", ".join(str(d) for d in run.plan.dirs))
+        return None
+    if not items:
+        run.warnings.append("the quiz has no items")
 
-        report_path = write_csv(primary / f"{stem}_qti-report.csv",
-                                QTI_REPORT_COLUMNS, builder.report)
-        shared.append(report_path)
-        if in_qti < len(items):
-            warnings.append(f"{len(items) - in_qti} item(s) are in the JSON but not "
+    json_path = run.primary / f"{run.stem}_new-quiz.json"
+    with atomic_write(json_path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "canvas_host": canvas.base, "course_id": cid, "assignment_id": aid,
+            "assignment_name": run.assignment.get("name"),
+            "quiz": quiz, "items": items}, indent=2, ensure_ascii=False))
+    json.loads(json_path.read_text(encoding="utf-8"))    # round-trip check
+    run.shared.append(json_path)
+
+    qti_path = run.primary / f"{run.stem}_qti.zip"
+    builder.write_zip(qti_path)
+    verify_qti_zip(qti_path, in_qti)
+    run.shared.append(qti_path)
+
+    report_path = write_csv(run.primary / f"{run.stem}_qti-report.csv",
+                            QTI_REPORT_COLUMNS, builder.report)
+    run.shared.append(report_path)
+    if in_qti < len(items):
+        run.warnings.append(f"{len(items) - in_qti} item(s) are in the JSON but not "
                             f"the QTI; see {report_path.name}")
+    return quiz, items
 
-        if req.answers:
-            if reporter.cancelled():
-                raise Cancelled("stopped before the student analysis report")
-            reporter.info("Student answers (student analysis report):")
-            raw = adir / f".{stem}_student-answers.download"
-            try:
-                run_quiz_report(canvas, cid, aid, state_path, raw, req.timeout, reporter)
-                files, notes = write_answers(raw, plan, f"{stem}_student-answers.csv",
-                                             reporter)
-                per_dir += files
-                warnings += notes
-                if req.uploads:
-                    reporter.info("File Upload answers (links in the report):")
-                    try:
-                        n, notes = download_report_uploads(canvas, raw, plan, cid, stem,
-                                                           reporter)
-                        warnings += notes
-                        if n:
-                            reporter.info(f"  {n} uploaded file(s) saved under "
-                                  f"{stem}_uploads/")
-                    except (OSError, ValueError, CsvError,
-                            requests.RequestException) as exc:
-                        warnings.append(f"file uploads: {exc}")
-            except (RuntimeError, TimeoutError, OSError, ValueError, CsvError,
-                    requests.RequestException) as exc:
-                warnings.append(f"student answers: {exc}")
-                answers_missing = True
-            finally:
-                raw.unlink(missing_ok=True)    # the unfiltered report never stays
 
-        if req.course_export:
-            if reporter.cancelled():
-                raise Cancelled("stopped before the course export")
-            reporter.info("Course export (Common Cartridge) of this quiz's assignment:")
-            tmp_cc = adir / f".{stem}_course-export.download"
-            try:
-                run_content_export(canvas, cid, "common_cartridge",
-                                   {"assignments": [aid]}, state_path, tmp_cc,
-                                   req.timeout, reporter)
-                ok, why = package_contains_quiz(tmp_cc, quiz, items)
-                if ok:
-                    cc_path = primary / f"{stem}_course-export.imscc"
-                    tmp_cc.replace(cc_path)
-                    shared.append(cc_path)
-                    reporter.info(f"  kept: {why}")
-                else:
-                    warnings.append(f"course export not kept: {why}")
-            except (RuntimeError, TimeoutError, OSError,
-                    requests.RequestException) as exc:
-                warnings.append(f"course export: {exc}")
-                course_incomplete = True
-            finally:
-                tmp_cc.unlink(missing_ok=True)
+def _answers_stage(run: _ExportRun) -> None:
+    """The student analysis report, split per folder; uploads linked from it."""
+    reporter = run.reporter
+    if reporter.cancelled():
+        raise Cancelled("stopped before the student analysis report")
+    reporter.info("Student answers (student analysis report):")
+    raw = run.adir / f".{run.stem}_student-answers.download"
+    try:
+        run_quiz_report(run.canvas, run.cid, run.aid, run.state_path, raw,
+                        run.req.timeout, reporter)
+        files, notes = write_answers(raw, run.plan, f"{run.stem}_student-answers.csv",
+                                     reporter)
+        run.per_dir += files
+        run.warnings += notes
+        if run.req.uploads:
+            _report_uploads_stage(run, raw)
+    except (RuntimeError, TimeoutError, OSError, ValueError, CsvError,
+            requests.RequestException) as exc:
+        run.warnings.append(f"student answers: {exc}")
+        run.answers_missing = True
+    finally:
+        raw.unlink(missing_ok=True)    # the unfiltered report never stays
 
-    discard_if_empty(state_path)
+
+def _report_uploads_stage(run: _ExportRun, raw: Path) -> None:
+    run.reporter.info("File Upload answers (links in the report):")
+    try:
+        n, notes = download_report_uploads(run.canvas, raw, run.plan, run.cid, run.stem,
+                                           run.reporter)
+        run.warnings += notes
+        if n:
+            run.reporter.info(f"  {n} uploaded file(s) saved under {run.stem}_uploads/")
+    except (OSError, ValueError, CsvError, requests.RequestException) as exc:
+        run.warnings.append(f"file uploads: {exc}")
+
+
+def _course_export_stage(run: _ExportRun, quiz: dict, items: list[dict]) -> None:
+    """A Common Cartridge export of the quiz's assignment, kept only if it
+    really holds this quiz."""
+    reporter = run.reporter
+    if reporter.cancelled():
+        raise Cancelled("stopped before the course export")
+    reporter.info("Course export (Common Cartridge) of this quiz's assignment:")
+    tmp_cc = run.adir / f".{run.stem}_course-export.download"
+    try:
+        run_content_export(run.canvas, run.cid, "common_cartridge",
+                           {"assignments": [run.aid]}, run.state_path, tmp_cc,
+                           run.req.timeout, reporter)
+        ok, why = package_contains_quiz(tmp_cc, quiz, items)
+        if ok:
+            cc_path = run.primary / f"{run.stem}_course-export.imscc"
+            tmp_cc.replace(cc_path)
+            run.shared.append(cc_path)
+            reporter.info(f"  kept: {why}")
+        else:
+            run.warnings.append(f"course export not kept: {why}")
+    except (RuntimeError, TimeoutError, OSError, requests.RequestException) as exc:
+        run.warnings.append(f"course export: {exc}")
+        run.course_incomplete = True
+    finally:
+        tmp_cc.unlink(missing_ok=True)
+
+
+def _finish_export(run: _ExportRun) -> QuizExportResult:
+    """Copy shared files into every folder, list what was written, sum up."""
+    reporter, plan = run.reporter, run.plan
+    discard_if_empty(run.state_path)
     for extra in plan.dirs[1:]:
         extra.mkdir(parents=True, exist_ok=True)
-        for f in shared:
+        for f in run.shared:
             shutil.copy2(f, extra / f.name)
 
     reporter.info("\nExported:")
-    names = [f.name for f in shared] + sorted({f.name for f in per_dir})
+    names = [f.name for f in run.shared] + sorted({f.name for f in run.per_dir})
     exported: list[Path] = []
     for d in plan.dirs:
         for n in names:
@@ -527,9 +603,9 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
             if p.exists():
                 exported.append(p)
                 reporter.info(f"  {p}  ({p.stat().st_size:,} bytes)")
-    for w_ in warnings:
+    for w_ in run.warnings:
         reporter.warning(f"  ! {w_}")
-    reporter.info(f"API use: {canvas.rate_summary()}")
-    outcome = (ANSWERS_MISSING if answers_missing else
-               COURSE_EXPORT_INCOMPLETE if course_incomplete else EXPORTED)
-    return QuizExportResult(outcome, exported, warnings)
+    reporter.info(f"API use: {run.canvas.rate_summary()}")
+    outcome = (ANSWERS_MISSING if run.answers_missing else
+               COURSE_EXPORT_INCOMPLETE if run.course_incomplete else EXPORTED)
+    return QuizExportResult(outcome, exported, run.warnings)
