@@ -152,26 +152,25 @@ def _grade_before(sub: dict | None) -> str:
     return str(sub.get("entered_grade") or sub.get("grade") or "")
 
 
+class _Errors(list):
+    """Problems in one grade file, as '<file>:<line>: message'."""
+
+    def __init__(self, where: str):
+        super().__init__()
+        self.where = where
+
+    def __call__(self, msg: str, entry: GradeEntry | None = None) -> None:
+        self.append(f"{self.where}:{entry.line}: {msg}" if entry else f"{self.where}: {msg}")
+
+
 def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
                     rosters: dict[int, Roster],
                     allow_duplicate_comments: bool) -> tuple[GradePlan | None, list[str]]:
     """Resolve a parsed grade file against Canvas. Reads only; posts nothing."""
-    errors: list[str] = []
-    where = gf.path.name
-
-    def err(msg: str, entry: GradeEntry | None = None) -> None:
-        errors.append(f"{where}:{entry.line}: {msg}" if entry else f"{where}: {msg}")
-
-    # Course: from --course, else from the section.
+    err = _Errors(gf.path.name)
+    course_id = _grade_file_course(canvas, gf, course_id, err)
     if course_id is None:
-        if gf.section_id is None:
-            err("no [SECTION] id to find the course from; pass --course")
-            return None, errors
-        try:
-            course_id = canvas.section(gf.section_id)["course_id"]
-        except NotFound as exc:
-            err(f"section {gf.section_id} not found ({exc})")
-            return None, errors
+        return None, err
 
     if course_id not in rosters:
         rosters[course_id] = Roster.load(canvas, course_id)     # once per course
@@ -192,8 +191,42 @@ def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
         assignment = canvas.assignment(course_id, gf.assignment_id)
     except NotFound as exc:
         err(f"assignment {gf.assignment_id} not found in course {course_id} ({exc})")
-        return None, errors
+        return None, err
+    _check_assignment(gf, assignment, err, notes)
 
+    existing = {s.get("user_id"): s
+                for s in canvas.submissions_with_comments(course_id, gf.assignment_id)}
+    items: list[PlannedGrade] = []
+    seen: dict[int, int] = {}
+    for entry in gf.entries:
+        item = _plan_entry(entry, gf, roster, section, assignment, existing, seen,
+                           allow_duplicate_comments, err)
+        if item is not None:
+            items.append(item)
+
+    return GradePlan(source=gf, course_id=course_id, assignment=assignment,
+                     section=section, items=items, notes=notes), err
+
+
+def _grade_file_course(canvas: Canvas, gf: GradeFile, course_id: int | None,
+                       err: _Errors) -> int | None:
+    """The course: --course if given, else the one the file's section is in."""
+    if course_id is not None:
+        return course_id
+    if gf.section_id is None:
+        err("no [SECTION] id to find the course from; pass --course")
+        return None
+    try:
+        return canvas.section(gf.section_id)["course_id"]
+    except NotFound as exc:
+        err(f"section {gf.section_id} not found ({exc})")
+        return None
+
+
+def _check_assignment(gf: GradeFile, assignment: dict, err: _Errors,
+                      notes: list[str]) -> None:
+    """Assignment settings that block posting (errors) or that the user
+    should know about before posting (notes)."""
     if gf.assignment_title and \
             gf.assignment_title.casefold() not in (assignment.get("name") or "").casefold():
         notes.append(f"file says assignment {gf.assignment_title!r}, "
@@ -210,59 +243,56 @@ def plan_grade_file(canvas: Canvas, gf: GradeFile, course_id: int | None,
     if gf.blank_entries:
         notes.append(f"{gf.blank_entries} named student(s) have no grade or comment; skipped")
 
-    existing = {s.get("user_id"): s
-                for s in canvas.submissions_with_comments(course_id, gf.assignment_id)}
 
-    items: list[PlannedGrade] = []
-    seen: dict[int, int] = {}
-    for entry in gf.entries:
-        try:
-            user = resolve_grade_entry(roster, entry, gf.section_id)
-        except LookupError as exc:
-            err(str(exc), entry)
-            continue
-        uid = user["id"]
-        if uid in seen:
-            err(f"{user.get('sortable_name')} is listed twice (also line {seen[uid]})", entry)
-            continue
-        seen[uid] = entry.line
+def _plan_entry(entry: GradeEntry, gf: GradeFile, roster: Roster, section: dict | None,
+                assignment: dict, existing: dict, seen: dict[int, int],
+                allow_duplicate_comments: bool, err: _Errors) -> PlannedGrade | None:
+    """One [STUDENT] block: who it is, what to send, what to warn about.
+    None (with an error recorded) if it cannot be posted."""
+    try:
+        user = resolve_grade_entry(roster, entry, gf.section_id)
+    except LookupError as exc:
+        err(str(exc), entry)
+        return None
+    uid = user["id"]
+    if uid in seen:
+        err(f"{user.get('sortable_name')} is listed twice (also line {seen[uid]})", entry)
+        return None
+    seen[uid] = entry.line
 
-        try:
-            fields, warnings = grade_fields(entry, assignment)
-        except ValueError as exc:
-            err(str(exc), entry)
-            continue
+    try:
+        fields, warnings = grade_fields(entry, assignment)
+    except ValueError as exc:
+        err(str(exc), entry)
+        return None
 
-        sub = existing.get(uid)
-        if sub is None:
-            err(f"{user.get('sortable_name')} has no submission record for this "
-                "assignment (not assigned to them?)", entry)
-            continue
+    sub = existing.get(uid)
+    if sub is None:
+        err(f"{user.get('sortable_name')} has no submission record for this "
+            "assignment (not assigned to them?)", entry)
+        return None
 
-        if gf.section_id and section and \
-                gf.section_id not in roster.sections_of_user.get(uid, []):
-            warnings.append(f"not enrolled in section {section.get('name')}")
+    if gf.section_id and section and \
+            gf.section_id not in roster.sections_of_user.get(uid, []):
+        warnings.append(f"not enrolled in section {section.get('name')}")
 
-        skipped = False
-        if "text_comment" in fields and not allow_duplicate_comments:
-            posted = {_norm_comment(c.get("comment"))
-                      for c in sub.get("submission_comments") or []}
-            if _norm_comment(fields["text_comment"]) in posted:
-                del fields["text_comment"]
-                skipped = True
+    skipped = False
+    if "text_comment" in fields and not allow_duplicate_comments:
+        posted = {_norm_comment(c.get("comment"))
+                  for c in sub.get("submission_comments") or []}
+        if _norm_comment(fields["text_comment"]) in posted:
+            del fields["text_comment"]
+            skipped = True
 
-        before = _grade_before(sub)
-        if before and "posted_grade" in fields and \
-                not _same_grade(before, fields["posted_grade"]):
-            warnings.append(f"replaces existing grade {before}")
+    before = _grade_before(sub)
+    if before and "posted_grade" in fields and \
+            not _same_grade(before, fields["posted_grade"]):
+        warnings.append(f"replaces existing grade {before}")
 
-        items.append(PlannedGrade(entry=entry, user_id=uid,
-                                  student=user.get("sortable_name") or user.get("name") or "",
-                                  fields=fields, grade_before=before,
-                                  comment_skipped=skipped, warnings=warnings))
-
-    return GradePlan(source=gf, course_id=course_id, assignment=assignment,
-                     section=section, items=items, notes=notes), errors
+    return PlannedGrade(entry=entry, user_id=uid,
+                        student=user.get("sortable_name") or user.get("name") or "",
+                        fields=fields, grade_before=before,
+                        comment_skipped=skipped, warnings=warnings)
 
 
 def _preview(text: str, width: int = 60) -> str:
