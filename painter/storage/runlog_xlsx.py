@@ -8,8 +8,8 @@ from pathlib import Path
 # --------------------------------------------------------------------------
 # Excel run log
 # --------------------------------------------------------------------------
-# (header, row-key). The order here defines the column letters the formulas
-# below rely on, so inserting a column means updating the COL_* constants too.
+# (header, row-key). The formulas below find their columns by key, so
+# columns can be added or reordered here freely (review finding 12).
 LOG_COLUMNS = [
     ("Assignment", "assignment"), ("Assignment ID", "assignment_id"),
     ("Student", "student"), ("User ID", "user_id"),
@@ -24,13 +24,29 @@ LOG_COLUMNS = [
 ]
 
 
-COL_ASSIGN_ID, COL_USER_ID, COL_SECTION = "B", "D", "E"
+def _letter(n: int) -> str:
+    """1 -> A, 26 -> Z, 27 -> AA (same as openpyxl's get_column_letter)."""
+    out = ""
+    while n:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
 
 
-COL_LATE, COL_FILE = "K", "R"
+def column_of(key: str) -> str:
+    """Files-sheet column letter for a LOG_COLUMNS row-key."""
+    return _letter([k for _, k in LOG_COLUMNS].index(key) + 1)
 
 
-COL_NEW_SUB, COL_NEW_STU = "U", "V"   # helper flags appended after the above
+COL_ASSIGN_ID, COL_USER_ID, COL_SECTION = (column_of("assignment_id"),
+                                           column_of("user_id"), column_of("section"))
+
+
+COL_LATE, COL_FILE = column_of("late_yn"), column_of("filename")
+
+
+# helper flags appended after LOG_COLUMNS
+COL_NEW_SUB, COL_NEW_STU = _letter(len(LOG_COLUMNS) + 1), _letter(len(LOG_COLUMNS) + 2)
 
 
 HEAD_FILL = "DDEBF7"
