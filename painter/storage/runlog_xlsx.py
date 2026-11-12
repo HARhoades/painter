@@ -90,140 +90,167 @@ def write_run_log(rows: list[dict], path: Path, run: RunInfo) -> None:
     sheet while grading.
     """
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
-    head_font = Font(name=FONT, bold=True)
-    bold_font = Font(name=FONT, bold=True)
-    body_font = Font(name=FONT)
-    fill = PatternFill("solid", fgColor=HEAD_FILL)
-    box = Border(bottom=Side(style="thin", color="B0B0B0"))
-    last_row = max(len(rows) + 1, 2)   # keep ranges valid on an empty run
+    st = _Styles()
+    files = wb.active
+    files.title = "Files"
+    _files_sheet(files, rows, st)
 
-    def style_header(ws, ncols: int) -> None:
+    # By student -- one row per student who submitted anything this run.
+    name_of = {r.get("user_id"): r.get("student", "") for r in rows}
+    sect_of = {r.get("user_id"): r.get("section", "") for r in rows}
+    all_of = {r.get("user_id"): r.get("all_sections", "") for r in rows}
+    _rollup_sheet(wb.create_sheet("By Student"), "User ID",
+                  _first_seen(rows, "user_id", None), [
+                      ("Student", lambda k: name_of.get(k, "")),
+                      ("Section", lambda k: sect_of.get(k, "")),
+                      ("All sections", lambda k: all_of.get(k, "")),
+                  ], COL_USER_ID, False, st)
+    _rollup_sheet(wb.create_sheet("By Section"), "Section",
+                  _first_seen(rows, "section", ""), [], COL_SECTION, True, st)
+    _summary_sheet(wb.create_sheet("Run Summary"), len(rows), run, st)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
+class _Styles:
+    """Fonts, fill and border shared by every sheet (openpyxl loaded lazily)."""
+
+    def __init__(self):
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        self.head_font = Font(name=FONT, bold=True)
+        self.bold_font = Font(name=FONT, bold=True)
+        self.body_font = Font(name=FONT)
+        self.fill = PatternFill("solid", fgColor=HEAD_FILL)
+        self.box = Border(bottom=Side(style="thin", color="B0B0B0"))
+        self.head_align = Alignment(vertical="center", wrap_text=True)
+
+    def header(self, ws, ncols: int) -> None:
+        from openpyxl.utils import get_column_letter
         for c in range(1, ncols + 1):
             cell = ws.cell(row=1, column=c)
-            cell.font, cell.fill, cell.border = head_font, fill, box
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.font, cell.fill, cell.border = self.head_font, self.fill, self.box
+            cell.alignment = self.head_align
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = f"A1:{get_column_letter(ncols)}1"
 
+    def body(self, ws, first: int = 2) -> None:
+        for row_cells in ws.iter_rows(min_row=first):
+            for cell in row_cells:
+                if not cell.font.bold:
+                    cell.font = self.body_font
+
+    @staticmethod
     def autosize(ws, ncols: int, cap: int = 40) -> None:
+        from openpyxl.utils import get_column_letter
         for c in range(1, ncols + 1):
             widest = max((len(str(ws.cell(row=r, column=c).value or ""))
                           for r in range(1, ws.max_row + 1)), default=8)
             ws.column_dimensions[get_column_letter(c)].width = \
                 min(max(widest + 2, 9), cap)
 
-    def body(ws, first: int = 2) -> None:
-        for row_cells in ws.iter_rows(min_row=first):
-            for cell in row_cells:
-                if not cell.font.bold:
-                    cell.font = body_font
 
-    # ---- Sheet 1: one row per downloaded file --------------------------
-    files = wb.active
-    files.title = "Files"
+def _first_seen(rows: list[dict], key: str, default) -> list:
+    """Distinct values of row[key], in the order they first appear."""
+    seen, out = set(), []
+    for row in rows:
+        v = row.get(key, default)
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def _file_values(row: dict, r: int) -> list:
+    """One Files-sheet row: the LOG_COLUMNS, then the two helper flags."""
+    values = []
+    for _, key in LOG_COLUMNS:
+        if key == "late_yn":
+            values.append(_yn(row.get("late")))
+        elif key == "missing_yn":
+            values.append(_yn(row.get("missing")))
+        elif key == "extracted_yn":
+            values.append(_yn(row.get("extracted_to")))
+        else:
+            values.append(row.get(key, ""))
+    # Flag the first file of each submission, and the first file of each
+    # student, so the rollups can count submissions and headcount with a
+    # plain SUMIFS instead of a distinct-count array formula.
+    values.append(
+        f"=IF(COUNTIFS(${COL_USER_ID}$2:${COL_USER_ID}{r},${COL_USER_ID}{r},"
+        f"${COL_ASSIGN_ID}$2:${COL_ASSIGN_ID}{r},${COL_ASSIGN_ID}{r})=1,1,0)")
+    values.append(
+        f"=IF(COUNTIFS(${COL_USER_ID}$2:${COL_USER_ID}{r},"
+        f"${COL_USER_ID}{r})=1,1,0)")
+    return values
+
+
+def _files_sheet(ws, rows: list[dict], st: _Styles) -> None:
+    """Sheet 1: one row per attachment."""
     headers = [h for h, _ in LOG_COLUMNS] + ["New submission", "New student"]
-    files.append(headers)
-
+    ws.append(headers)
     for r, row in enumerate(rows, start=2):
-        values = []
-        for _, key in LOG_COLUMNS:
-            if key == "late_yn":
-                values.append(_yn(row.get("late")))
-            elif key == "missing_yn":
-                values.append(_yn(row.get("missing")))
-            elif key == "extracted_yn":
-                values.append(_yn(row.get("extracted_to")))
-            else:
-                values.append(row.get(key, ""))
-        # Flag the first file of each submission, and the first file of each
-        # student, so the rollups can count submissions and headcount with a
-        # plain SUMIFS instead of a distinct-count array formula.
-        values.append(
-            f"=IF(COUNTIFS(${COL_USER_ID}$2:${COL_USER_ID}{r},${COL_USER_ID}{r},"
-            f"${COL_ASSIGN_ID}$2:${COL_ASSIGN_ID}{r},${COL_ASSIGN_ID}{r})=1,1,0)")
-        values.append(
-            f"=IF(COUNTIFS(${COL_USER_ID}$2:${COL_USER_ID}{r},"
-            f"${COL_USER_ID}{r})=1,1,0)")
-        files.append(values)
+        ws.append(_file_values(row, r))
+    st.header(ws, len(headers))
+    st.body(ws)
+    st.autosize(ws, len(headers))
 
-    ncols = len(headers)
-    style_header(files, ncols)
-    body(files)
-    autosize(files, ncols)
 
-    # ---- Sheets 2 and 3: rollups ---------------------------------------
-    def rollup(title: str, key_header: str, keys: list, extra: list,
-               match_col: str, with_headcount: bool):
-        ws = wb.create_sheet(title)
-        head = [key_header] + [h for h, _ in extra]
+def _rollup_sheet(ws, key_header: str, keys: list, extra: list, match_col: str,
+                  with_headcount: bool, st: _Styles) -> None:
+    """Sheets 2 and 3: per-student or per-section counts, as formulas."""
+    from openpyxl.utils import get_column_letter
+    head = [key_header] + [h for h, _ in extra]
+    if with_headcount:
+        head.append("Students")
+    head += ["Files", "Submissions", "Late files"]
+    ws.append(head)
+
+    for i, key in enumerate(keys, start=2):
+        line = [key] + [fn(key) for _, fn in extra]
         if with_headcount:
-            head.append("Students")
-        head += ["Files", "Submissions", "Late files"]
-        ws.append(head)
+            line.append(f"=SUMIFS(Files!${COL_NEW_STU}:${COL_NEW_STU},"
+                        f"Files!${match_col}:${match_col},$A{i})")
+        line += [
+            f'=COUNTIFS(Files!${match_col}:${match_col},$A{i},'
+            f'Files!${COL_STATUS}:${COL_STATUS},"<>failed*")',
+            f"=SUMIFS(Files!${COL_NEW_SUB}:${COL_NEW_SUB},"
+            f"Files!${match_col}:${match_col},$A{i})",
+            f'=COUNTIFS(Files!${match_col}:${match_col},$A{i},'
+            f'Files!${COL_LATE}:${COL_LATE},"Yes")',
+        ]
+        ws.append(line)
 
-        for i, key in enumerate(keys, start=2):
-            line = [key] + [fn(key) for _, fn in extra]
-            if with_headcount:
-                line.append(f"=SUMIFS(Files!${COL_NEW_STU}:${COL_NEW_STU},"
-                            f"Files!${match_col}:${match_col},$A{i})")
-            line += [
-                f'=COUNTIFS(Files!${match_col}:${match_col},$A{i},'
-                f'Files!${COL_STATUS}:${COL_STATUS},"<>failed*")',
-                f"=SUMIFS(Files!${COL_NEW_SUB}:${COL_NEW_SUB},"
-                f"Files!${match_col}:${match_col},$A{i})",
-                f'=COUNTIFS(Files!${match_col}:${match_col},$A{i},'
-                f'Files!${COL_LATE}:${COL_LATE},"Yes")',
-            ]
-            ws.append(line)
+    ncol = len(head)
+    if keys:
+        last = ws.max_row
+        totals = ["Total"] + [""] * len(extra)
+        for c in range(2 + len(extra), ncol + 1):
+            letter = get_column_letter(c)
+            totals.append(f"=SUM({letter}2:{letter}{last})")
+        ws.append(totals)
+        for cell in ws[ws.max_row]:
+            cell.font = st.bold_font
+    st.header(ws, ncol)
+    st.body(ws)
+    st.autosize(ws, ncol)
 
-        ncol = len(head)
-        if keys:
-            last = ws.max_row
-            totals = ["Total"] + [""] * len(extra)
-            first_num = 2 + len(extra)
-            for c in range(first_num, ncol + 1):
-                letter = get_column_letter(c)
-                totals.append(f"=SUM({letter}2:{letter}{last})")
-            ws.append(totals)
-            for cell in ws[ws.max_row]:
-                cell.font = bold_font
-        style_header(ws, ncol)
-        body(ws)
-        autosize(ws, ncol)
-        return ws
 
-    # By student -- one row per student who submitted anything this run.
-    seen, student_ids = set(), []
-    for row in rows:
-        uid = row.get("user_id")
-        if uid not in seen:
-            seen.add(uid)
-            student_ids.append(uid)
-    name_of = {r.get("user_id"): r.get("student", "") for r in rows}
-    sect_of = {r.get("user_id"): r.get("section", "") for r in rows}
-    all_of = {r.get("user_id"): r.get("all_sections", "") for r in rows}
-    rollup("By Student", "User ID", student_ids, [
-        ("Student", lambda k: name_of.get(k, "")),
-        ("Section", lambda k: sect_of.get(k, "")),
-        ("All sections", lambda k: all_of.get(k, "")),
-    ], COL_USER_ID, with_headcount=False)
+SUMMARY_NOTES = [
+    "Counts are formulas over the Files sheet, so they follow any rows "
+    "you delete or filter there.",
+    "Due and Late come from Canvas and already account for section and "
+    "student date overrides.",
+    "New submission / New student on the Files sheet are helper flags "
+    "(1 on a student's first file) used by the rollups.",
+]
 
-    # By section
-    seen, section_names = set(), []
-    for row in rows:
-        name = row.get("section", "")
-        if name not in seen:
-            seen.add(name)
-            section_names.append(name)
-    rollup("By Section", "Section", section_names, [],
-           COL_SECTION, with_headcount=True)
 
-    # ---- Sheet 4: what this run actually did ---------------------------
-    info = wb.create_sheet("Run Summary")
+def _summary_sheet(ws, n_rows: int, run: RunInfo, st: _Styles) -> None:
+    """Sheet 4: what this run did, and totals as formulas over Files."""
+    last_row = max(n_rows + 1, 2)   # keep ranges valid on an empty run
     filters = []
     if run.assignment_ids:
         filters.append("assignments: " + ", ".join(str(a) for a in run.assignment_ids))
@@ -232,7 +259,7 @@ def write_run_log(rows: list[dict], path: Path, run: RunInfo) -> None:
     if run.student_specs:
         filters.append("students: " + ", ".join(run.student_specs))
 
-    info.append(["Field", "Value"])
+    ws.append(["Field", "Value"])
     for label, value in [
         ("Run started", run.run_started.strftime("%Y-%m-%d %H:%M:%S")),
         ("Course ID", run.course_id),
@@ -250,21 +277,11 @@ def write_run_log(rows: list[dict], path: Path, run: RunInfo) -> None:
         ("Late files",
          f'=COUNTIF(Files!${COL_LATE}$2:${COL_LATE}${last_row},"Yes")'),
     ]:
-        info.append([label, value])
-    info.append([])
-    for note in [
-        "Counts are formulas over the Files sheet, so they follow any rows "
-        "you delete or filter there.",
-        "Due and Late come from Canvas and already account for section and "
-        "student date overrides.",
-        "New submission / New student on the Files sheet are helper flags "
-        "(1 on a student's first file) used by the rollups.",
-    ]:
-        info.append(["Note", note])
-    style_header(info, 2)
-    body(info)
-    info.column_dimensions["A"].width = 20
-    info.column_dimensions["B"].width = 62
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(path)
+        ws.append([label, value])
+    ws.append([])
+    for note in SUMMARY_NOTES:
+        ws.append(["Note", note])
+    st.header(ws, 2)
+    st.body(ws)
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 62
