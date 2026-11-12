@@ -1,7 +1,11 @@
 """Saving attachments and unpacking archives safely."""
 from __future__ import annotations
 
+import bz2
+import gzip
+import lzma
 from pathlib import Path
+import shutil
 import tarfile
 import zipfile
 
@@ -9,6 +13,10 @@ from painter.canvas.client import Canvas
 
 
 ARCHIVE_SUFFIXES = {".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
+
+
+# Single-file compression (not a tar inside): suffix -> opener.
+_COMPRESSED = {".gz": gzip.open, ".bz2": bz2.open, ".xz": lzma.open}
 
 
 def download(canvas: Canvas, url: str, dest: Path,
@@ -24,7 +32,12 @@ def download(canvas: Canvas, url: str, dest: Path,
 
 
 def extract(archive: Path, dest: Path) -> bool:
-    """Extract a zip/tar into dest, refusing any member that escapes dest."""
+    """Extract a zip/tar into dest, refusing any member that escapes dest.
+
+    A .gz/.bz2/.xz that is not a tar is decompressed to one file in dest.
+    Members are streamed to disk, never read whole into memory (review
+    finding 11).
+    """
     dest.mkdir(parents=True, exist_ok=True)
     dest_res = dest.resolve()
 
@@ -48,7 +61,7 @@ def extract(archive: Path, dest: Path) -> bool:
                         continue
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with zf.open(member) as src, open(target, "wb") as out:
-                        out.write(src.read())
+                        shutil.copyfileobj(src, out, 1 << 20)
             return True
 
         if tarfile.is_tarfile(archive):
@@ -62,8 +75,18 @@ def extract(archive: Path, dest: Path) -> bool:
                         continue
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with tf.extractfile(member) as src, open(target, "wb") as out:
-                        out.write(src.read())
+                        shutil.copyfileobj(src, out, 1 << 20)
             return True
+
+        opener = _COMPRESSED.get(archive.suffix.lower())
+        if opener is not None:
+            target = dest / (archive.stem or "file")
+            tmp = target.with_name(target.name + ".part")
+            with opener(archive, "rb") as src, open(tmp, "wb") as out:
+                shutil.copyfileobj(src, out, 1 << 20)
+            tmp.replace(target)
+            return True
+        print(f"      ! {archive.name} is not a readable archive; left as is")
     except Exception as exc:
         print(f"      ! could not extract {archive.name}: {exc}")
     return False

@@ -139,3 +139,24 @@ def test_extract_tar_and_non_archives(tmp_path):
     plain = tmp_path / "notes.gz"
     plain.write_text("not an archive")
     assert extract(plain, tmp_path / "n") is False
+
+
+def test_extract_single_file_compression(tmp_path):
+    """Review finding 11: .gz/.bz2/.xz that are not tars are decompressed."""
+    import bz2, gzip, lzma
+    for suffix, mod in ((".gz", gzip), (".bz2", bz2), (".xz", lzma)):
+        archive = tmp_path / f"data.csv{suffix}"
+        archive.write_bytes(mod.compress(b"a,b\n1,2\n"))
+        dest = tmp_path / f"out{suffix}"
+        assert extract(archive, dest) is True
+        assert (dest / "data.csv").read_bytes() == b"a,b\n1,2\n"
+
+
+def test_rerun_does_not_re_extract(fake_canvas, run_cli, tmp_path):
+    from conftest import BASE
+    out_dir = tmp_path / "o"
+    argv = ("--base-url", BASE, "--course", "100", "--out", str(out_dir), "--no-xlsx")
+    code, out, _ = run_cli(*argv)
+    assert code == 0 and "extracted -> analysis/" in out
+    _, out, _ = run_cli(*argv)
+    assert "extracted ->" not in out

@@ -193,7 +193,9 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
                     print(f"    {status_text} {fname}")
                     if not args.no_extract and target.suffix.lower() in ARCHIVE_SUFFIXES:
                         unpack_dir = sdir / target.stem
-                        if extract(target, unpack_dir):
+                        if not fresh and unpack_dir.is_dir():
+                            extracted_to = str(unpack_dir)   # done on an earlier run
+                        elif extract(target, unpack_dir):
                             extracted_to = str(unpack_dir)
                             print(f"      extracted -> {unpack_dir.name}/")
                         else:
