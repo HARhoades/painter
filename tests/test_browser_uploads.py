@@ -139,8 +139,8 @@ def test_cancel_stops_between_students_and_still_logs(quiz, tmp_path):
 
 def test_limit_and_nobody_to_visit(quiz, fake_canvas, tmp_path):
     browser = FakeBrowser(captured={}, bodies={})
-    res = browser_quiz_uploads(quiz, req(tmp_path, limit=1), RecordingReporter(),
-                               open_browser=browser)
+    browser_quiz_uploads(quiz, req(tmp_path, limit=1), RecordingReporter(),
+                         open_browser=browser)
     assert [e for e in browser.events if isinstance(e, tuple)] == [("load", 503)]
     for uid in (501, 502, 503):
         fake_canvas.submissions[7003][uid]["workflow_state"] = "unsubmitted"
