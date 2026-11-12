@@ -209,12 +209,12 @@ def fake_canvas(monkeypatch):
 @pytest.fixture
 def run_cli(monkeypatch, capsys):
     """Run the command line exactly as a user would; returns (code, out, err)."""
-    import canvas_fetch_submissions as cfs
+    from painter.cli.main import main
 
     def run(*argv: str):
         monkeypatch.setattr(sys, "argv", ["canvas_fetch_submissions.py", *argv])
         try:
-            code = cfs.main()
+            code = main()
         except SystemExit as exc:
             code = exc.code
         out, err = capsys.readouterr()

@@ -1,7 +1,11 @@
 import pytest
 import requests
 
-import canvas_fetch_submissions as cfs
+from painter.canvas.client import (
+    BACKOFF_BASE, BACKOFF_CAP, Canvas, MAX_ATTEMPTS, RATE_LOW_WATER, RATE_REFILL_PER_SEC,
+    backoff_delay, is_throttled, retry_after_seconds,
+)
+from painter.canvas.jobs import POLL_FACTOR, POLL_START, poll_until
 from conftest import BASE, make_response
 
 
@@ -22,7 +26,7 @@ class ScriptedSession:
 
 
 def client(*steps):
-    c = cfs.Canvas(BASE + "/", "tok")
+    c = Canvas(BASE + "/", "tok")
     c.session = ScriptedSession(*steps)
     c.slept = []
     c.sleep = c.slept.append
@@ -30,26 +34,26 @@ def client(*steps):
 
 
 def test_base_url_and_auth_header():
-    c = cfs.Canvas(BASE + "/", "tok")
+    c = Canvas(BASE + "/", "tok")
     assert c.base == BASE
     assert c.session.headers["Authorization"] == "Bearer tok"
 
 
 def test_throttle_detection_and_retry_after():
-    assert cfs.is_throttled(make_response("u", 429))
-    assert cfs.is_throttled(make_response("u", 403, content=b"Rate Limit Exceeded"))
-    assert not cfs.is_throttled(make_response("u", 403, content=b"forbidden"))
-    assert cfs.retry_after_seconds(make_response("u", 429, headers={"Retry-After": "7"})) == 7.0
-    assert cfs.retry_after_seconds(make_response("u", 429)) is None
-    assert cfs.retry_after_seconds(make_response("u", 429, headers={"Retry-After": "-1"})) is None
+    assert is_throttled(make_response("u", 429))
+    assert is_throttled(make_response("u", 403, content=b"Rate Limit Exceeded"))
+    assert not is_throttled(make_response("u", 403, content=b"forbidden"))
+    assert retry_after_seconds(make_response("u", 429, headers={"Retry-After": "7"})) == 7.0
+    assert retry_after_seconds(make_response("u", 429)) is None
+    assert retry_after_seconds(make_response("u", 429, headers={"Retry-After": "-1"})) is None
 
 
 def test_backoff_is_capped_and_honours_retry_after():
-    assert cfs.backoff_delay(0, 5) == 5
-    assert cfs.backoff_delay(0, 9999) == cfs.BACKOFF_CAP
+    assert backoff_delay(0, 5) == 5
+    assert backoff_delay(0, 9999) == BACKOFF_CAP
     for attempt in range(10):
-        ceiling = min(cfs.BACKOFF_CAP, cfs.BACKOFF_BASE * 2 ** attempt)
-        assert ceiling / 2 <= cfs.backoff_delay(attempt) <= ceiling
+        ceiling = min(BACKOFF_CAP, BACKOFF_BASE * 2 ** attempt)
+        assert ceiling / 2 <= backoff_delay(attempt) <= ceiling
 
 
 def test_throttled_request_is_retried_then_succeeds():
@@ -78,16 +82,16 @@ def test_connection_error_retried_for_get_only():
 
 
 def test_gives_up_after_max_attempts():
-    c = client(*[make_response("u", 429) for _ in range(cfs.MAX_ATTEMPTS)])
+    c = client(*[make_response("u", 429) for _ in range(MAX_ATTEMPTS)])
     with pytest.raises(requests.HTTPError):
         c.get_json("u")
-    assert len(c.session.requests) == cfs.MAX_ATTEMPTS
+    assert len(c.session.requests) == MAX_ATTEMPTS
 
 
 def test_pacing_when_bucket_is_low():
     c = client(make_response("u", payload={}, headers={"X-Rate-Limit-Remaining": "50"}))
     c.get_json("u")
-    assert c.slept == [(cfs.RATE_LOW_WATER - 50) / cfs.RATE_REFILL_PER_SEC]
+    assert c.slept == [(RATE_LOW_WATER - 50) / RATE_REFILL_PER_SEC]
     assert c.stats["min_remaining"] == 50.0
     assert "lowest X-Rate-Limit-Remaining 50" in c.rate_summary()
 
@@ -130,11 +134,11 @@ def test_fetch_file_restarts_a_cut_off_transfer(tmp_path):
 def test_poll_until_grows_interval_and_respects_timeout():
     results = iter([{"s": "queued"}, {"s": "running"}, {"s": "done"}])
     waits = []
-    result, done = cfs.poll_until(lambda: next(results), lambda r: r["s"] == "done",
+    result, done = poll_until(lambda: next(results), lambda r: r["s"] == "done",
                                   timeout=100, sleep=waits.append)
     assert (result, done) == ({"s": "done"}, True)
-    assert waits == [cfs.POLL_START, cfs.POLL_START * cfs.POLL_FACTOR]
-    result, done = cfs.poll_until(lambda: {"s": "queued"}, lambda r: False,
+    assert waits == [POLL_START, POLL_START * POLL_FACTOR]
+    result, done = poll_until(lambda: {"s": "queued"}, lambda r: False,
                                   timeout=0, sleep=waits.append)
     assert done is False
 
