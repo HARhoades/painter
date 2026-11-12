@@ -12,7 +12,16 @@ import requests
 
 
 class PainterError(Exception):
-    """Base for every error Painter raises on purpose."""
+    """Base for every error Painter raises on purpose.
+
+    .notes holds anything the service had to say before failing (same shape
+    as events.Note), so a front end can show it ahead of the error."""
+
+    notes: list = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.notes = []
 
 
 class InvalidInput(PainterError, ValueError):

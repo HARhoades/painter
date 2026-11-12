@@ -7,10 +7,11 @@ from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas
+from painter.domain.selection import select_students
 from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts
 from painter.domain.naming import attachment_filenames, flat_filename, slug, student_dir_name
-from painter.domain.roster import Roster, assigned_students, select_students
+from painter.domain.roster import Roster, assigned_students
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import log_filename, write_run_log
 

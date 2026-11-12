@@ -1,10 +1,19 @@
-from types import SimpleNamespace
-
 import pytest
 
 from painter.domain.roster import (
-    Roster, match_section, resolve_sections, resolve_students, select_students,
+    Roster, match_section, resolve_sections as _resolve_sections,
+    resolve_students as _resolve_students,
 )
+from painter.domain.selection import Selection
+from painter.errors import InvalidInput
+
+
+def resolve_sections(roster, specs):
+    return _resolve_sections(roster, specs)[0]
+
+
+def resolve_students(roster, specs):
+    return _resolve_students(roster, specs)[0]
 from painter.services.submissions import collect_attachments
 
 SECTIONS = [
@@ -61,7 +70,7 @@ def test_match_section():
 def test_resolve_sections_and_typos(roster):
     assert resolve_sections(roster, ["12", "lab"]) == {12, 13}
     assert resolve_sections(roster, ["-8"]) == {11, 12}
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InvalidInput) as exc:
         resolve_sections(roster, ["nope"])
     assert "No section match for: 'nope'" in str(exc.value)
 
@@ -72,15 +81,24 @@ def test_match_and_resolve_students(roster):
     assert resolve_students(roster, ["jdoe2"]) == {501}
     assert resolve_students(roster, ["nguyen"]) == {503}
     assert resolve_students(roster, ["Rick Roe"]) == {502}
-    with pytest.raises(SystemExit):
+    with pytest.raises(InvalidInput):
         resolve_students(roster, ["nobody"])
 
 
-def test_select_students_is_a_union(roster):
-    none = SimpleNamespace(student=None, section=None)
-    assert select_students(roster, none) == (None, set())
-    both = SimpleNamespace(student=["501"], section=["Lab 002"])
-    assert select_students(roster, both) == ({501, 503}, {13})
+def test_selection_is_a_union(roster):
+    none = Selection().resolve(roster)
+    assert (none.student_ids, none.section_ids, none.notes) == (None, set(), [])
+    both = Selection.of(["Lab 002"], ["501"]).resolve(roster)
+    assert (both.student_ids, both.section_ids) == ({501, 503}, {13})
+    assert both.notes == [("warning", "Sections: Lab 002")]
+
+
+def test_selection_reports_ambiguous_specs_and_keeps_notes_on_failure(roster):
+    res = Selection.of(["-8"]).resolve(roster)
+    assert res.notes[0][0] == "info" and "matched 2 sections" in res.notes[0][1]
+    with pytest.raises(InvalidInput) as exc:
+        Selection.of(["-8"], ["nobody"]).resolve(roster)
+    assert "matched 2 sections" in exc.value.notes[0][1]
 
 
 def test_collect_attachments_deduplicates_and_reads_history():
@@ -117,7 +135,7 @@ def test_section_specs_stop_at_the_best_tier():
     assert resolve_sections(r, ["1"]) == {1}                 # exact id, not "Lab 1" etc.
     assert resolve_sections(r, ["41"]) == {41}
     for empty in ("", "   "):
-        with pytest.raises(SystemExit, match="needs a value"):
+        with pytest.raises(InvalidInput, match="needs a value"):
             resolve_sections(r, [empty])
 
 
@@ -127,5 +145,5 @@ def test_student_specs_stop_at_the_best_tier():
     assert resolve_students(r, ["Ann Lee"]) == {501}         # exact name, not Leeson
     assert resolve_students(r, ["ann"]) == {502}             # exact login wins
     assert resolve_students(r, ["lee"]) == {501, 502}        # partial: both
-    with pytest.raises(SystemExit, match="needs a value"):
+    with pytest.raises(InvalidInput, match="needs a value"):
         resolve_students(r, [""])

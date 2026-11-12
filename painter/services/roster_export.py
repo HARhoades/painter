@@ -6,8 +6,9 @@ from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas
+from painter.domain.selection import select_students
 from painter.domain.roster import (
-    Roster, assigned_students, section_instructors, select_students, split_name,
+    Roster, assigned_students, section_instructors, split_name,
 )
 
 

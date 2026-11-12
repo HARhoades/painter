@@ -10,7 +10,9 @@ import sys
 import requests
 
 from painter.canvas.client import Canvas, check_base_url
-from painter.errors import CanvasHTTPError
+from painter.cli.console import ConsoleReporter
+from painter.errors import CanvasHTTPError, PainterError
+from painter.events import emit
 from painter.config import LEGACY_BROWSER_PROFILE, TOKEN_ENV, default_browser_profile
 from painter.services.grade_files import make_grade_files
 from painter.services.grading import post_grades
@@ -34,6 +36,11 @@ def main() -> int:
         print(f"Error: {exc.hint or 'Canvas returned an error.'}\n  ({exc})",
               file=sys.stderr)
         return EXIT_CANVAS_ERROR
+    except PainterError as exc:
+        # Same as the SystemExit(message) these used to be: message on
+        # stderr, exit status 1.
+        emit(exc.notes, ConsoleReporter())
+        raise SystemExit(str(exc)) from None
     except requests.ConnectionError as exc:
         print(f"Error: could not reach Canvas ({exc}).", file=sys.stderr)
         return EXIT_CANVAS_ERROR

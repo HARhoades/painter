@@ -6,10 +6,11 @@ from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas
+from painter.domain.selection import select_students
 from painter.domain.assignments import assignment_folder
 from painter.domain.matching import _letters
 from painter.domain.naming import slug
-from painter.domain.roster import Roster, assigned_students, select_students
+from painter.domain.roster import Roster, assigned_students
 
 
 @dataclass

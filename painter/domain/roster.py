@@ -1,10 +1,9 @@
 """Course membership: sections, students, instructors, and the --section/--student filters."""
 from __future__ import annotations
 
-import sys
-
 from painter.canvas.client import Canvas
-from painter.errors import NotFound
+from painter.errors import InvalidInput, NotFound
+from painter.events import Note
 
 
 # --------------------------------------------------------------------------
@@ -136,7 +135,7 @@ def _student_names(u: dict):
 
 def _reject_empty(specs: list[str], flag: str) -> None:
     if any(not (s or "").strip() for s in specs):
-        raise SystemExit(f"{flag} needs a value; an empty one would match everything.")
+        raise InvalidInput(f"{flag} needs a value; an empty one would match everything.")
 
 
 def match_section(spec: str, section: dict) -> bool:
@@ -149,8 +148,11 @@ def match_section(spec: str, section: dict) -> bool:
     return match_tier(spec, _section_ids(section), _section_names(section)) is not None
 
 
-def resolve_sections(roster: Roster, specs: list[str]) -> set[int]:
-    """Turn --section specs into section IDs, failing loudly on typos."""
+def resolve_sections(roster: Roster, specs: list[str]) -> tuple[set[int], list[Note]]:
+    """Turn --section specs into section IDs, failing loudly on typos.
+
+    Returns (ids, notes); notes say when one spec matched several sections."""
+    notes: list[Note] = []
     selected: set[int] = set()
     unmatched: list[str] = []
 
@@ -162,16 +164,16 @@ def resolve_sections(roster: Roster, specs: list[str]) -> set[int]:
             continue
         if len(hits) > 1:
             names = ", ".join(f"{s.get('name')} ({s['id']})" for s in hits)
-            print(f"  note: '{spec}' matched {len(hits)} sections -> {names}")
+            notes.append(("info", f"  note: '{spec}' matched {len(hits)} sections -> {names}"))
         for s in hits:
             selected.add(s["id"])
 
     if unmatched:
-        raise SystemExit(
+        raise InvalidInput(
             "No section match for: " + ", ".join(repr(s) for s in unmatched) +
             "\nRun with --list-sections to see valid IDs and names."
         )
-    return selected
+    return selected, notes
 
 
 def match_student(spec: str, user: dict) -> bool:
@@ -183,8 +185,11 @@ def match_student(spec: str, user: dict) -> bool:
     return match_tier(spec, _student_ids(user), _student_names(user)) is not None
 
 
-def resolve_students(roster: Roster, specs: list[str]) -> set[int]:
-    """Turn --student specs into user IDs, failing loudly on typos."""
+def resolve_students(roster: Roster, specs: list[str]) -> tuple[set[int], list[Note]]:
+    """Turn --student specs into user IDs, failing loudly on typos.
+
+    Returns (ids, notes); notes say when one spec matched several students."""
+    notes: list[Note] = []
     selected: set[int] = set()
     unmatched: list[str] = []
 
@@ -196,39 +201,16 @@ def resolve_students(roster: Roster, specs: list[str]) -> set[int]:
             continue
         if len(hits) > 1:
             names = ", ".join(f"{u.get('sortable_name')} ({u['id']})" for u in hits)
-            print(f"  note: '{spec}' matched {len(hits)} students -> {names}")
+            notes.append(("info", f"  note: '{spec}' matched {len(hits)} students -> {names}"))
         for u in hits:
             selected.add(u["id"])
 
     if unmatched:
-        raise SystemExit(
+        raise InvalidInput(
             "No roster match for: " + ", ".join(repr(s) for s in unmatched) +
             "\nRun with --list-students to see valid IDs and names."
         )
-    return selected
-
-
-def select_students(roster: Roster, args) -> tuple[set[int] | None, set[int]]:
-    """Apply --section and --student, as a union.
-
-    Returns (student_ids, section_ids). student_ids is None when neither
-    filter was given, meaning "everyone". Shared by the download pass and
-    --list-students so both select exactly the same people.
-    """
-    if not (args.student or args.section):
-        return None, set()
-    student_ids: set[int] = set()
-    section_ids: set[int] = set()
-    if args.section:
-        section_ids = resolve_sections(roster, args.section)
-        for sid in section_ids:
-            student_ids |= roster.users_of_section.get(sid, set())
-        names = ", ".join(roster.section_by_id[s].get("name", str(s))
-                          for s in sorted(section_ids))
-        print(f"Sections: {names}", file=sys.stderr)
-    if args.student:
-        student_ids |= resolve_students(roster, args.student)
-    return student_ids, section_ids
+    return selected, notes
 
 
 def assigned_students(canvas: Canvas, course_id: int,
@@ -248,7 +230,7 @@ def assigned_students(canvas: Canvas, course_id: int,
                 if sub.get("user_id") is not None:
                     users.add(sub["user_id"])
         except NotFound as exc:
-            raise SystemExit(f"Assignment {aid} not found in course {course_id} "
+            raise InvalidInput(f"Assignment {aid} not found in course {course_id} "
                              f"({exc}).\nRun with --list-assignments to see valid IDs.")
     return users
 

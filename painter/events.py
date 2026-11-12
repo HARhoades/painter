@@ -70,3 +70,13 @@ class RecordingReporter:
 
 
 NULL = NullReporter()
+
+
+# Foundations (canvas/, domain/, storage/) do not take a reporter; when they
+# have something to say they return it as notes for the caller to emit.
+Note = tuple[str, str]          # ("info" | "warning", text)
+
+
+def emit(notes: list[Note], reporter: Reporter) -> None:
+    for kind, text in notes:
+        (reporter.warning if kind == "warning" else reporter.info)(text)

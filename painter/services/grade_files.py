@@ -75,7 +75,9 @@ def make_grade_files(canvas: Canvas, args) -> int:
                     canvas.student_enrollments(args.course))
 
     if args.section:
-        section_ids = resolve_sections(roster, args.section)
+        section_ids, notes = resolve_sections(roster, args.section)
+        for _, text in notes:
+            print(text)
     else:
         section_ids = {s["id"] for s in roster.sections}
         print("No --section given: writing a file for every section in the course.")
