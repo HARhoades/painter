@@ -29,3 +29,20 @@ browser_script/
 browser_grader/
 toy_mcp/
 json-rpc-2/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Signed-in browser session for --browser-uploads: never commit
+canvas-browser-profile/
+
+# Run outputs
+submission_log_*.xlsx
+grade_post_log_*.csv
+organize_log_*.csv
+manifest.csv
+.coverage

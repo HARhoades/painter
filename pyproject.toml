@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "painter"
+version = "0.1.0"
+description = "Automates Canvas pain points for instructors: bulk submission downloads, rosters, grade posting, quiz export."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+xlsx = ["openpyxl>=3.1"]          # Excel run log
+browser = ["playwright>=1.40"]    # --browser-uploads
+dev = ["pytest>=7", "openpyxl>=3.1"]
+
+[tool.setuptools]
+py-modules = ["canvas_fetch_submissions"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
