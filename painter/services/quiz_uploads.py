@@ -246,9 +246,64 @@ class BrowserUploadsResult:
 
 
 def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
-                         reporter: Reporter = NULL) -> BrowserUploadsResult:
+                         reporter: Reporter = NULL,
+                         open_browser=None) -> BrowserUploadsResult:
     """Download a New Quiz's File Upload answers through SpeedGrader in a
-    Playwright-driven browser. Sign-in happens in that browser window."""
+    Playwright-driven browser. Sign-in happens in that browser window.
+
+    open_browser(canvas, req, reporter) returns the browser to drive (a
+    context manager with sign_in, load_student, fetch, click_download, pause);
+    the default is PlaywrightQuizBrowser. Tests pass a fake.
+    """
+    run = _plan_uploads(canvas, req, reporter)
+    if isinstance(run, BrowserUploadsResult):
+        return run
+    if req.dry_run:
+        for uid, _, sess in run.todo:
+            _, folder, _ = run.student_folder(uid)
+            reporter.info(f"  {folder}   quiz session {sess or '? (matched by page load)'}")
+        reporter.info("Dry run: no browser opened, nothing downloaded.")
+        return BrowserUploadsResult(UPLOADS_DONE)
+
+    with (open_browser or PlaywrightQuizBrowser)(canvas, req, reporter) as browser:
+        browser.sign_in()
+        for n, (uid, _sub, sess) in enumerate(run.todo, 1):
+            if reporter.cancelled():
+                break                 # still close the browser and write the log
+            if _visit_student(run, browser, n, uid, sess):
+                browser.pause(req.delay)
+    return _finish_uploads(run)
+
+
+@dataclass
+class _UploadsRun:
+    """One browser-uploads run: who to visit, where files go, what happened."""
+    req: BrowserUploadsRequest
+    reporter: Reporter
+    plan: QuizExportPlan
+    roster: Roster
+    stem: str
+    todo: list                             # (user id, submission, quiz session)
+    log: list[dict] = field(default_factory=list)
+    saved: int = 0
+    failed: int = 0
+    no_files: int = 0
+
+    def student_folder(self, uid: int) -> tuple[Path, Path, str]:
+        """(output folder, the student's uploads folder, its name)."""
+        who = student_folder_name(uid, self.roster.users.get(uid))
+        base = (self.plan.dir_of or {}).get(uid, self.plan.dirs[0])
+        return base, base / f"{self.stem}_uploads" / who, who
+
+    def problem(self, who: str, uid: int, sess: str, status: str) -> None:
+        self.failed += 1
+        self.log.append({"student_folder": who, "user_id": uid, "quiz_session": sess,
+                         "question": "", "file": "", "size": "", "status": status})
+
+
+def _plan_uploads(canvas: Canvas, req: BrowserUploadsRequest,
+                  reporter: Reporter) -> "_UploadsRun | BrowserUploadsResult":
+    """The quiz, the selection, and the submitted students to visit (sorted)."""
     assignment = require_one(canvas, req.course_id, req.assignment_ids,
                              "--browser-uploads needs exactly one --assignment "
                              "(the quiz's assignment ID).")
@@ -282,99 +337,199 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
     reporter.info(f"{len(todo)} submitted student(s) to visit.")
     if not todo:
         return BrowserUploadsResult(NO_STUDENTS)
+    return _UploadsRun(req, reporter, plan, roster, stem, todo)
 
-    def student_folder(uid: int) -> tuple[Path, Path, str]:
-        who = student_folder_name(uid, roster.users.get(uid))
-        base = (plan.dir_of or {}).get(uid, plan.dirs[0])
-        return base, base / f"{stem}_uploads" / who, who
 
-    if req.dry_run:
-        for uid, _, sess in todo:
-            _, folder, _ = student_folder(uid)
-            reporter.info(f"  {folder}   quiz session {sess or '? (matched by page load)'}")
-        reporter.info("Dry run: no browser opened, nothing downloaded.")
-        return BrowserUploadsResult(UPLOADS_DONE)
+def _visit_student(run: _UploadsRun, browser, n: int, uid: int, sess) -> bool:
+    """Open one student's quiz and save their uploads. Returns True if their
+    files were processed (the caller then pauses before the next student)."""
+    reporter, total = run.reporter, len(run.todo)
+    base, folder, who = run.student_folder(uid)
+    reporter.progress(n - 1, total, who)
+    reporter.info(f"  [{n}/{total}] {who}", end="")
+    got, captured = browser.load_student(uid, sess, run.req.page_timeout)
+    if got is None:
+        reporter.info(f"  ! quiz results did not load within {run.req.page_timeout:.0f}s")
+        run.problem(who, uid, sess or "", "failed: quiz results did not load")
+        return False
+    name_seen = captured.get("name")
+    if not sess and name_seen and not same_words(name_seen, run.roster.users[uid]):
+        reporter.info(f"  ! loaded quiz belongs to {name_seen!r}; skipped")
+        run.problem(who, uid, got, f"failed: page showed {name_seen}")
+        return False
 
+    files = uploads_in_results(captured["results"])
+    if not files:
+        run.no_files += 1
+        reporter.info("  (no uploaded files)")
+        run.log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
+                        "question": "", "file": "", "size": "", "status": "no files"})
+        return False
+    reporter.info(f"  {len(files)} file(s)")
+    for f in files:
+        status, target = _save_upload(browser, f, folder)
+        if status.startswith("failed"):
+            run.failed += 1
+        else:
+            run.saved += 1
+        reporter.info(f"      {status:<11} {target.relative_to(base)}")
+        run.log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
+                        "question": f["position"], "file": f["name"],
+                        "size": f["size"] or "", "status": status})
+    return True
+
+
+def _save_upload(browser, f: dict, folder: Path) -> tuple[str, Path]:
+    """One uploaded file: kept if already there at the listed size, else
+    fetched directly, else downloaded by clicking its link. (status, path)."""
+    target = folder / f"Q{f['position']}__{safe_filename(f['name'])}"
+    if target.exists() and (f["size"] is None or target.stat().st_size == f["size"]):
+        return "cached", target
     try:
-        from playwright.sync_api import sync_playwright, Error as PWError
-    except ImportError:
-        raise MissingDependency("Playwright is not installed: pip install playwright "
-                         "(then 'playwright install chromium' if you use "
-                         "--browser-channel chromium).")
+        body = browser.fetch(f["url"])
+        with atomic_write(target, "wb") as fh:
+            fh.write(body)
+        status = "downloaded"
+        if f["size"] is not None and len(body) != f["size"]:
+            status += f" (size {len(body)}, quiz listed {f['size']})"
+        return status, target
+    except Exception as exc:
+        # Fall back to clicking the file link in the grading view.
+        try:
+            browser.click_download(f["name"], target)
+            return "downloaded (via click)", target
+        except Exception as exc2:
+            return f"failed: {exc}; click: {exc2}", target
 
-    log: list[dict] = []
-    saved = failed = no_files = 0
-    profile = Path(req.profile).expanduser().resolve()
-    channel = None if req.channel == "chromium" else req.channel
 
-    with sync_playwright() as pw:
-        attached = bool(req.connect_url)
-        if attached:
+def _finish_uploads(run: _UploadsRun) -> BrowserUploadsResult:
+    reporter = run.reporter
+    log_paths = write_uploads_logs(run.plan, run.stem, run.log)
+    for p in log_paths:
+        reporter.info(f"Log: {p}")
+    reporter.info(f"\n{run.saved} file(s) saved, {run.no_files} student(s) with no upload, "
+          f"{run.failed} problem(s).")
+    if reporter.cancelled():
+        raise Cancelled(f"stopped; {run.saved} file(s) saved so far, log written")
+    return BrowserUploadsResult(UPLOADS_WITH_PROBLEMS if run.failed else UPLOADS_DONE,
+                                run.saved, run.no_files, run.failed, run.log, log_paths)
+
+
+class PlaywrightQuizBrowser:
+    """The real browser: Playwright launching Chrome/Edge with a saved
+    profile, or attached to one the user started. Captures the New Quizzes
+    API responses SpeedGrader loads, which is where the upload links are."""
+
+    def __init__(self, canvas: Canvas, req: BrowserUploadsRequest, reporter: Reporter):
+        try:
+            from playwright.sync_api import sync_playwright, Error as PWError
+        except ImportError:
+            raise MissingDependency("Playwright is not installed: pip install playwright "
+                             "(then 'playwright install chromium' if you use "
+                             "--browser-channel chromium).")
+        self._sync_playwright, self.PWError = sync_playwright, PWError
+        self.canvas, self.req, self.reporter = canvas, req, reporter
+        self.course_url = f"{canvas.base}/courses/{req.course_id}"
+        self.captured: dict[str, dict] = {}
+
+    # -- lifetime ------------------------------------------------------------------
+    def __enter__(self):
+        req, reporter = self.req, self.reporter
+        self._pw_cm = self._sync_playwright()
+        pw = self._pw_cm.__enter__()
+        self.attached = bool(req.connect_url)
+        if self.attached:
             # A browser the user started with --remote-debugging-port: sign-in
             # (SSO, CAC certificate prompt, 2FA) behaves exactly as normal,
             # because Playwright did not launch it.
             reporter.info(f"Connecting to your browser at {req.connect_url} ...")
             try:
                 browser = pw.chromium.connect_over_cdp(req.connect_url)
-            except PWError as exc:
+            except self.PWError as exc:
+                self._pw_cm.__exit__(None, None, None)
                 raise BrowserUnavailable(
                     f"Could not connect to {req.connect_url}: {exc}\n"
                     "Start the browser first, e.g. (Windows, Chrome):\n"
                     '  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
                     "--remote-debugging-port=9222 --user-data-dir=C:\\canvas-browser-profile\n"
                     "and keep it open.")
-            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            self.ctx = browser.contexts[0] if browser.contexts else browser.new_context()
         else:
+            profile = Path(req.profile).expanduser().resolve()
             reporter.info(f"Starting {req.channel} with profile {profile} ...")
-            ctx = pw.chromium.launch_persistent_context(
-                str(profile), channel=channel, headless=req.headless,
-                accept_downloads=True, viewport={"width": 1400, "height": 900})
-        captured: dict[str, dict] = {}
-
-        def on_response(resp):
-            m = QUIZ_RESULTS_RE.search(resp.url)
-            if m and resp.status == 200:
-                try:
-                    captured.setdefault(m.group(1), {})["results"] = resp.json()
-                except Exception:
-                    pass
-                return
-            m = QUIZ_SESSION_RE.search(resp.url)
-            if m and resp.status == 200 and "quiz-api" in resp.url:
-                try:
-                    meta = (resp.json() or {}).get("metadata") or {}
-                    captured.setdefault(m.group(1), {})["name"] = meta.get("user_full_name")
-                except Exception:
-                    pass
-
-        ctx.on("response", on_response)
+            self.ctx = pw.chromium.launch_persistent_context(
+                str(profile), channel=None if req.channel == "chromium" else req.channel,
+                headless=req.headless, accept_downloads=True,
+                viewport={"width": 1400, "height": 900})
+        self.ctx.on("response", self._on_response)
         # Any route turns off the HTTP cache for matching requests, so a
         # rerun never gets an empty "304 Not Modified" instead of the JSON.
-        ctx.route("**/api/quiz_sessions/**", lambda route: route.continue_())
+        self.ctx.route("**/api/quiz_sessions/**", lambda route: route.continue_())
         # Our own tab, so an attached browser's existing tabs are left alone.
-        page = ctx.new_page() if attached or not ctx.pages else ctx.pages[0]
-        course_url = f"{canvas.base}/courses/{cid}"
+        self.page = (self.ctx.new_page() if self.attached or not self.ctx.pages
+                     else self.ctx.pages[0])
+        return self
 
-        def signed_in_page():
-            for pg in ctx.pages:
-                try:
-                    u = pg.url
-                except PWError:
-                    continue
-                if u.startswith(course_url) or (u.startswith(canvas.base)
-                                                and "/login" not in u):
-                    return pg
-            return None
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                if self.attached:
+                    self.page.close()     # leave the user's browser and tabs open
+                else:
+                    self.ctx.close()
+        finally:
+            self._pw_cm.__exit__(exc_type, exc, tb)
+        return False
 
+    def _on_response(self, resp):
+        m = QUIZ_RESULTS_RE.search(resp.url)
+        if m and resp.status == 200:
+            try:
+                self.captured.setdefault(m.group(1), {})["results"] = resp.json()
+            except Exception:
+                pass
+            return
+        m = QUIZ_SESSION_RE.search(resp.url)
+        if m and resp.status == 200 and "quiz-api" in resp.url:
+            try:
+                meta = (resp.json() or {}).get("metadata") or {}
+                self.captured.setdefault(m.group(1), {})["name"] = meta.get("user_full_name")
+            except Exception:
+                pass
+
+    # -- signing in ----------------------------------------------------------------
+    def _signed_in_page(self):
+        base = self.canvas.base
+        for pg in self.ctx.pages:
+            try:
+                u = pg.url
+            except self.PWError:
+                continue
+            if u.startswith(self.course_url) or (u.startswith(base) and "/login" not in u):
+                return pg
+        return None
+
+    def _tab_hosts(self) -> str:
+        urls = []
+        for pg in self.ctx.pages:
+            try:
+                urls.append(requests.utils.urlparse(pg.url).netloc or pg.url)
+            except self.PWError:
+                pass
+        return ", ".join(urls)
+
+    def sign_in(self) -> None:
+        """Open the course; if Canvas wants a sign-in, wait for the user."""
+        reporter, req, page = self.reporter, self.req, self.page
         reporter.info("Opening Canvas ...")
         try:
             # "commit" returns as soon as the server answers, so an SSO
             # redirect chain or certificate prompt can't block this call.
-            page.goto(course_url, wait_until="commit", timeout=60_000)
-        except PWError as exc:
+            page.goto(self.course_url, wait_until="commit", timeout=60_000)
+        except self.PWError as exc:
             reporter.info(f"  (first page load did not finish: {str(exc).splitlines()[0]})")
         page.wait_for_timeout(2000)
-        if signed_in_page() is None:
+        if self._signed_in_page() is None:
             reporter.info("Sign in to Canvas in the browser window (SSO / CAC / 2FA as "
                   "usual). This continues by itself once Canvas has loaded; "
                   f"waiting up to {req.signin_timeout:.0f}s.")
@@ -382,18 +537,12 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
             last_note = time.monotonic()
             # Polling with wait_for_timeout keeps Playwright processing
             # events while you sign in (a blocking input() would not).
-            while signed_in_page() is None and time.monotonic() < deadline:
+            while self._signed_in_page() is None and time.monotonic() < deadline:
                 page.wait_for_timeout(1000)
                 if time.monotonic() - last_note > 30:
                     last_note = time.monotonic()
-                    urls = []
-                    for pg in ctx.pages:
-                        try:
-                            urls.append(requests.utils.urlparse(pg.url).netloc or pg.url)
-                        except PWError:
-                            pass
-                    reporter.info(f"  still waiting; open tab(s): {', '.join(urls) or 'none'}")
-            found = signed_in_page()
+                    reporter.info(f"  still waiting; open tab(s): {self._tab_hosts() or 'none'}")
+            found = self._signed_in_page()
             if found is None:
                 raise BrowserUnavailable(
                     "Not signed in to Canvas after "
@@ -401,109 +550,44 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
                     "finished (common with CAC certificate prompts in a browser "
                     "Playwright starts), use --connect-browser instead; see "
                     "--help.")
-            if found is not page:
-                page = found
+            self.page = found
         reporter.info("Signed in.")
 
-        for n, (uid, sub, sess) in enumerate(todo, 1):
-            base, folder, who = student_folder(uid)
-            if reporter.cancelled():
-                break                 # still close the browser and write the log
-            reporter.progress(n - 1, len(todo), who)
-            reporter.info(f"  [{n}/{len(todo)}] {who}", end="")
-            before = set(captured)
-            url = (f"{canvas.base}/courses/{cid}/gradebook/speed_grader"
-                   f"?assignment_id={aid}&student_id={uid}")
-            got = None
-            try:
-                page.goto(url, wait_until="domcontentloaded")
-                deadline = time.monotonic() + req.page_timeout
-                while time.monotonic() < deadline:
-                    if sess and "results" in captured.get(sess, {}):
-                        got = sess
-                        break
-                    if not sess:
-                        fresh = [s for s in captured if s not in before
-                                 and "results" in captured[s]]
-                        if fresh:
-                            got = fresh[0]
-                            break
-                    page.wait_for_timeout(250)
-            except PWError as exc:
-                reporter.info(f"  ! page error: {exc}")
-            if got is None:
-                failed += 1
-                reporter.info(f"  ! quiz results did not load within {req.page_timeout:.0f}s")
-                log.append({"student_folder": who, "user_id": uid, "quiz_session": sess or "",
-                            "question": "", "file": "", "size": "", "status":
-                            "failed: quiz results did not load"})
-                continue
-            name_seen = captured[got].get("name")
-            if not sess and name_seen and not same_words(name_seen, roster.users[uid]):
-                failed += 1
-                reporter.info(f"  ! loaded quiz belongs to {name_seen!r}; skipped")
-                log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
-                            "question": "", "file": "", "size": "",
-                            "status": f"failed: page showed {name_seen}"})
-                continue
+    # -- per student ---------------------------------------------------------------
+    def load_student(self, uid: int, sess, timeout: float):
+        """Open the student in SpeedGrader and wait for their quiz results.
+        Returns (quiz session id, captured data), or (None, {})."""
+        before = set(self.captured)
+        url = (f"{self.canvas.base}/courses/{self.req.course_id}/gradebook/speed_grader"
+               f"?assignment_id={self.req.assignment_ids[0]}&student_id={uid}")
+        try:
+            self.page.goto(url, wait_until="domcontentloaded")
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if sess and "results" in self.captured.get(sess, {}):
+                    return sess, self.captured[sess]
+                if not sess:
+                    fresh = [s for s in self.captured if s not in before
+                             and "results" in self.captured[s]]
+                    if fresh:
+                        return fresh[0], self.captured[fresh[0]]
+                self.page.wait_for_timeout(250)
+        except self.PWError as exc:
+            self.reporter.info(f"  ! page error: {exc}")
+        return None, {}
 
-            files = uploads_in_results(captured[got]["results"])
-            if not files:
-                no_files += 1
-                reporter.info("  (no uploaded files)")
-                log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
-                            "question": "", "file": "", "size": "", "status": "no files"})
-                continue
-            reporter.info(f"  {len(files)} file(s)")
-            for f in files:
-                fname = f"Q{f['position']}__{safe_filename(f['name'])}"
-                target = folder / fname
-                status = ""
-                if target.exists() and (f["size"] is None
-                                        or target.stat().st_size == f["size"]):
-                    status = "cached"
-                else:
-                    try:
-                        r = ctx.request.get(f["url"], timeout=120_000)
-                        if not r.ok:
-                            raise RuntimeError(f"HTTP {r.status}")
-                        body = r.body()
-                        with atomic_write(target, "wb") as fh:
-                            fh.write(body)
-                        status = "downloaded"
-                        if f["size"] is not None and len(body) != f["size"]:
-                            status += f" (size {len(body)}, quiz listed {f['size']})"
-                    except Exception as exc:
-                        # Fall back to clicking the file link in the grading view.
-                        try:
-                            frame = next(fr for fr in page.frames if "quiz-lti" in fr.url)
-                            with page.expect_download(timeout=60_000) as dl:
-                                frame.get_by_text(f["name"], exact=True).first.click()
-                            folder.mkdir(parents=True, exist_ok=True)
-                            dl.value.save_as(target)
-                            status = "downloaded (via click)"
-                        except Exception as exc2:
-                            status = f"failed: {exc}; click: {exc2}"
-                if status.startswith("failed"):
-                    failed += 1
-                else:
-                    saved += 1
-                reporter.info(f"      {status:<11} {target.relative_to(base)}")
-                log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
-                            "question": f["position"], "file": f["name"],
-                            "size": f["size"] or "", "status": status})
-            page.wait_for_timeout(req.delay * 1000)
-        if attached:
-            page.close()          # leave the user's browser and tabs open
-        else:
-            ctx.close()
+    def fetch(self, url: str) -> bytes:
+        r = self.ctx.request.get(url, timeout=120_000)
+        if not r.ok:
+            raise RuntimeError(f"HTTP {r.status}")
+        return r.body()
 
-    log_paths = write_uploads_logs(plan, stem, log)
-    for p in log_paths:
-        reporter.info(f"Log: {p}")
-    reporter.info(f"\n{saved} file(s) saved, {no_files} student(s) with no upload, "
-          f"{failed} problem(s).")
-    if reporter.cancelled():
-        raise Cancelled(f"stopped; {saved} file(s) saved so far, log written")
-    return BrowserUploadsResult(UPLOADS_WITH_PROBLEMS if failed else UPLOADS_DONE,
-                                saved, no_files, failed, log, log_paths)
+    def click_download(self, name: str, target: Path) -> None:
+        frame = next(fr for fr in self.page.frames if "quiz-lti" in fr.url)
+        with self.page.expect_download(timeout=60_000) as dl:
+            frame.get_by_text(name, exact=True).first.click()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        dl.value.save_as(target)
+
+    def pause(self, seconds: float) -> None:
+        self.page.wait_for_timeout(seconds * 1000)
