@@ -130,6 +130,8 @@ class FakeCanvas:
         if origin != BASE:
             raise AssertionError(f"unexpected host in test: {url}")
         hit = self.extra.get((method.upper(), path))
+        if callable(hit):                 # a sequence or computed answer
+            hit = hit()
         if hit is not None:
             if isinstance(hit, requests.Response):
                 return hit

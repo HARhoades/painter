@@ -1,0 +1,44 @@
+{
+ "steps": [
+  {
+   "argv": [
+    "--base-url",
+    "https://canvas.test",
+    "--course",
+    "100",
+    "--assignment",
+    "7004",
+    "--export-quiz",
+    "--out",
+    "<TMP>/o"
+   ],
+   "exit": 3,
+   "stdout": [
+    "[7004] Old Quiz  (Classic Quiz)",
+    "  started export 84",
+    "  export 84: exported",
+    "",
+    "Exported:",
+    "  <TMP>/o/Old-Quiz_7004/Old-Quiz_qti.zip  (318 bytes)",
+    "API use: 5 request(s)"
+   ],
+   "stderr": [
+    "  ! student answers are only implemented for New Quizzes; this Classic Quiz was exported without them"
+   ],
+   "requests": [
+    "GET /api/v1/courses/100/assignments/7004",
+    "POST /api/v1/courses/100/content_exports",
+    "GET /api/v1/courses/100/content_exports/84",
+    "GET /api/v1/courses/100/content_exports/84",
+    "GET /f/cc84"
+   ],
+   "posted": []
+  }
+ ],
+ "files": {
+  "o/Old-Quiz_7004/Old-Quiz_qti.zip": {
+   "g1/assessment_qti.xml": "79cb2ba32a781128",
+   "imsmanifest.xml": "18af6467c5122007"
+  }
+ }
+}

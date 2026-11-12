@@ -22,6 +22,7 @@ from golden.scenarios import SCENARIOS  # noqa: E402
 HERE = Path(__file__).resolve().parent / "golden" / "transcripts"
 RECORD = os.environ.get("PAINTER_GOLDEN_RECORD") == "1"
 TS = re.compile(r"\d{8}_\d{6}")
+UTC_MINUTE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC")    # "started ... UTC"
 ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)?")
 
 
@@ -32,7 +33,7 @@ class Ctx:
 
     def norm(self, text: str) -> str:
         text = text.replace(str(self.tmp), "<TMP>").replace(str(Path.home()), "<HOME>")
-        return ISO.sub("<ISO>", TS.sub("<TS>", text))
+        return ISO.sub("<ISO>", UTC_MINUTE.sub("<UTC-MINUTE>", TS.sub("<TS>", text)))
 
     def run(self, *argv):
         from painter.cli.main import main

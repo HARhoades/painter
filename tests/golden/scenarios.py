@@ -88,6 +88,49 @@ def add_new_quiz(fake, report_rows="Name,ID,Q1\r\nJane Doe,501,True\r\nRick Roe,
     fake.extra[("GET", "/files/report.csv")] = report_rows.encode("utf-8-sig")
 
 
+def seq(*answers):
+    """Successive answers to one route; the last one repeats. An answer that
+    is callable is called (so each 409 is a fresh Response)."""
+    it = iter(answers)
+
+    def next_answer():
+        a = next(it, answers[-1])
+        return a() if callable(a) else a
+    return next_answer
+
+
+def iso_ago(**delta):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(**delta)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def course_export_routes(fake, export_id=80, body_text="Quiz 1: Sky is blue"):
+    """A course export job that is 'exporting' once, then 'exported'."""
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("imsmanifest.xml", "<manifest/>")
+        zf.writestr("g1/assessment_qti.xml",
+                    f"<questestinterop><p>{body_text}</p></questestinterop>")
+    fake.file_bodies[f"/f/cc{export_id}"] = buf.getvalue()
+    att = {"url": f"{FILES}/f/cc{export_id}", "size": len(buf.getvalue())}
+    fake.extra[("GET", f"/api/v1/courses/100/content_exports/{export_id}")] = seq(
+        {"id": export_id, "workflow_state": "exporting", "created_at": iso_ago(minutes=1)},
+        {"id": export_id, "workflow_state": "exported", "created_at": iso_ago(minutes=1),
+         "attachment": att})
+
+
+def save_state(c, entries):
+    import json
+    d = c.tmp / "o" / "Quiz-1_7003"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / ".quiz_export_state.json").write_text(json.dumps(entries), encoding="utf-8")
+
+
+CC_KEY = 'common_cartridge:{"assignments": [7003]}'
+REPORT_KEY = "new_quiz_report:student_analysis:csv"
+
+
 def status(fake, method, path, code):
     fake.extra[(method, path)] = make_response(f"{BASE}{path}", code, {"errors": "x"})
 
@@ -366,6 +409,87 @@ def export_quiz_report_without_id(c):
     c.fake.extra[("POST", "/api/quiz/v1/courses/100/quizzes/7003/reports")] = {}
     c.run(*COMMON, "--assignment", "7003", "--export-quiz", "--no-course-export",
           "--out", str(c.tmp / "o"))
+
+
+# ---- quiz export: Canvas jobs, started and resumed (phase 4, step 0) --------------------
+@scenario
+def export_quiz_with_course_export(c):
+    add_new_quiz(c.fake)
+    c.fake.extra[("POST", "/api/v1/courses/100/content_exports")] = {
+        "id": 80, "workflow_state": "created", "created_at": iso_ago(seconds=1)}
+    course_export_routes(c.fake, 80)
+    c.run(*COMMON, "--assignment", "7003", "--export-quiz", "--out", str(c.tmp / "o"))
+
+
+@scenario
+def export_quiz_resumes_saved_jobs(c):
+    """Saved report and export jobs are picked up: no new POST of either."""
+    add_new_quiz(c.fake)
+    save_state(c, {
+        REPORT_KEY: {"course_id": 100, "assignment_id": 7003, "progress_id": 6},
+        CC_KEY: {"course_id": 100, "export_id": 81, "created_at": iso_ago(hours=1)}})
+    c.fake.extra[("GET", "/api/v1/progress/6")] = seq(
+        {"id": 6, "workflow_state": "running", "completion": 40, "updated_at": iso_ago(seconds=5)},
+        {"id": 6, "workflow_state": "running", "completion": 80, "updated_at": iso_ago(seconds=1)},
+        {"id": 6, "workflow_state": "completed", "completion": 100,
+         "results": {"url": f"{BASE}/files/report.csv"}})
+    course_export_routes(c.fake, 81)
+    c.run(*COMMON, "--assignment", "7003", "--export-quiz", "--out", str(c.tmp / "o"))
+
+
+@scenario
+def export_quiz_stale_saved_jobs_restart(c):
+    """A failed saved report and an expired saved export are replaced."""
+    add_new_quiz(c.fake)
+    save_state(c, {
+        REPORT_KEY: {"course_id": 100, "assignment_id": 7003, "progress_id": 6},
+        CC_KEY: {"course_id": 100, "export_id": 82, "created_at": iso_ago(days=40)}})
+    c.fake.extra[("GET", "/api/v1/progress/6")] = {"id": 6, "workflow_state": "failed"}
+    c.fake.extra[("GET", "/api/v1/courses/100/content_exports/82")] = {
+        "id": 82, "workflow_state": "exported", "created_at": iso_ago(days=40)}
+    c.fake.extra[("POST", "/api/v1/courses/100/content_exports")] = {
+        "id": 80, "workflow_state": "created", "created_at": iso_ago(seconds=1)}
+    course_export_routes(c.fake, 80)
+    c.run(*COMMON, "--assignment", "7003", "--export-quiz", "--out", str(c.tmp / "o"))
+
+
+@scenario
+def export_quiz_report_409_wait(c):
+    """Another report is being generated: wait, then start ours once."""
+    add_new_quiz(c.fake)
+    path = "/api/quiz/v1/courses/100/quizzes/7003/reports"
+    c.fake.extra[("POST", path)] = seq(
+        lambda: make_response(f"{BASE}{path}", 409, {"errors": "busy"}),
+        lambda: make_response(f"{BASE}{path}", 409, {"errors": "busy"}),
+        {"id": 5, "workflow_state": "queued"})
+    c.run(*COMMON, "--assignment", "7003", "--export-quiz", "--no-course-export",
+          "--out", str(c.tmp / "o"))
+
+
+@scenario
+def export_quiz_course_export_post_error_finds_orphan(c):
+    """The export POST errors, but Canvas started the job: it is found, not repeated."""
+    add_new_quiz(c.fake)
+    path = "/api/v1/courses/100/content_exports"
+    c.fake.extra[("POST", path)] = make_response(f"{BASE}{path}", 500, {"errors": "boom"})
+    c.fake.extra[("GET", "/api/v1/users/self")] = {"id": 900}
+    c.fake.extra[("GET", path)] = [
+        {"id": 83, "export_type": "common_cartridge", "user_id": 900,
+         "workflow_state": "exporting", "created_at": iso_ago(seconds=2)}]
+    course_export_routes(c.fake, 83)
+    c.run(*COMMON, "--assignment", "7003", "--export-quiz", "--no-answers",
+          "--out", str(c.tmp / "o"))
+
+
+@scenario
+def export_classic_quiz_qti(c):
+    c.fake.assignments.append({"id": 7004, "name": "Old Quiz", "quiz_id": 44,
+                               "submission_types": ["online_quiz"]})
+    c.fake.submissions[7004] = {501: {"user_id": 501, "workflow_state": "submitted"}}
+    c.fake.extra[("POST", "/api/v1/courses/100/content_exports")] = {
+        "id": 84, "workflow_state": "created", "created_at": iso_ago(seconds=1)}
+    course_export_routes(c.fake, 84)
+    c.run(*COMMON, "--assignment", "7004", "--export-quiz", "--out", str(c.tmp / "o"))
 
 
 @scenario
