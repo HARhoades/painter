@@ -352,14 +352,15 @@ from painter.services.submissions import (  # noqa: F401
 )
 from painter.services.grade_files import (  # noqa: F401
     GRADE_FILE_KEYS, GradeEntry, GradeFile, GradeFileError, TERM_PATTERNS,
-    grade_file_name, make_grade_files, parse_grade_file, parse_term_name,
+    GradeFilesRequest, GradeFilesResult, grade_file_name, parse_grade_file,
+    parse_term_name,
     render_grade_file, section_prefix,
 )
 from painter.services.roster_export import (  # noqa: F401
     ROSTER_CSV_COLUMNS, RosterExportRequest, RosterExportResult,
 )
 from painter.cli.commands import (  # noqa: F401  (old (canvas, args) signatures)
-    roster_csv as export_roster_csv,
+    grade_files as make_grade_files, roster_csv as export_roster_csv,
 )
 from painter.services.organize import (  # noqa: F401
     RosterIndex, organize_submissions, read_roster_csv,

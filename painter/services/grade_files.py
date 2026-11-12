@@ -1,14 +1,15 @@
 """Grade files: creating blank ones from the roster, and parsing filled-in ones."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
 from painter.canvas.client import Canvas
-from painter.errors import NotFound
 from painter.domain.naming import slug
 from painter.domain.roster import Roster, resolve_sections, section_instructors
+from painter.errors import InvalidInput, NotFound
+from painter.events import NULL, Reporter, emit
 
 
 # --------------------------------------------------------------------------
@@ -69,56 +70,76 @@ def render_grade_file(assignment: dict | None, label: str, section: dict,
     return "\n".join(out).rstrip("\n") + "\n"
 
 
-def make_grade_files(canvas: Canvas, args) -> int:
-    """--make-grade-files: write one blank grade file per section."""
-    roster = Roster(canvas.sections(args.course),
-                    canvas.student_enrollments(args.course))
+@dataclass
+class GradeFilesRequest:
+    course_id: int
+    out_dir: Path
+    section_specs: tuple[str, ...] = ()      # empty: every section
+    assignment_ids: tuple[int, ...] = ()     # at most one; empty leaves title/id blank
+    label: str | None = None                 # filename label; default: first word of
+                                             # the assignment name
+    ay: str | None = None                    # default: from the course term name
+    term: str | None = None
+    force: bool = False                      # overwrite existing files
 
-    if args.section:
-        section_ids, notes = resolve_sections(roster, args.section)
-        for _, text in notes:
-            print(text)
+
+@dataclass
+class GradeFilesResult:
+    out_dir: Path
+    written: list[Path] = field(default_factory=list)
+    kept: list[Path] = field(default_factory=list)       # existed, not overwritten
+
+
+def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
+                     reporter: Reporter = NULL) -> GradeFilesResult:
+    """Write one blank grade file per section."""
+    roster = Roster(canvas.sections(req.course_id),
+                    canvas.student_enrollments(req.course_id))
+
+    if req.section_specs:
+        section_ids, notes = resolve_sections(roster, list(req.section_specs))
+        emit(notes, reporter)
     else:
         section_ids = {s["id"] for s in roster.sections}
-        print("No --section given: writing a file for every section in the course.")
+        reporter.info("No --section given: writing a file for every section in the course.")
 
     # Assignment is optional; without it the header is left blank to fill in.
     assignment = None
-    label = args.assignment_label
-    if args.assignment:
-        if len(args.assignment) > 1:
-            raise SystemExit("--make-grade-files takes at most one --assignment.")
+    label = req.label
+    if req.assignment_ids:
+        if len(req.assignment_ids) > 1:
+            raise InvalidInput("--make-grade-files takes at most one --assignment.")
         try:
-            assignment = canvas.assignment(args.course, args.assignment[0])
+            assignment = canvas.assignment(req.course_id, req.assignment_ids[0])
         except NotFound as exc:
-            raise SystemExit(f"Assignment {args.assignment[0]} not found in course "
-                             f"{args.course} ({exc}).")
+            raise InvalidInput(f"Assignment {req.assignment_ids[0]} not found in course "
+                               f"{req.course_id} ({exc}).")
         label = label or (assignment.get("name") or "").split()[0]
     if not label:
-        raise SystemExit("Without --assignment, pass --assignment-label NAME for "
-                         "the filename, e.g. --assignment-label DATE.")
+        raise InvalidInput("Without --assignment, pass --assignment-label NAME for "
+                           "the filename, e.g. --assignment-label DATE.")
     label = slug(label, 30)
 
     # AY and semester: from --ay/--term, else from the course's term name.
-    ay, term = args.ay, args.term
+    ay, term = req.ay, req.term
     if not (ay and term):
-        term_name = ((canvas.course(args.course).get("term") or {}).get("name") or "")
+        term_name = ((canvas.course(req.course_id).get("term") or {}).get("name") or "")
         parsed = parse_term_name(term_name)
         if not parsed:
-            raise SystemExit(
+            raise InvalidInput(
                 f"Could not read an academic year and semester from the course "
                 f"term name {term_name!r}. Pass --ay and --term, e.g. --ay 27 --term 1.")
         ay, term = ay or parsed[0], term or parsed[1]
-        print(f"Term {term_name!r} -> AY{ay}, semester {term}")
+        reporter.info(f"Term {term_name!r} -> AY{ay}, semester {term}")
     ay = ay[-2:]
 
     # Teachers first, TAs only where a section has no teacher: the same rule
     # as the roster CSV (review finding 6).
-    instructors = section_instructors(canvas, args.course)
+    instructors = section_instructors(canvas, req.course_id)
 
-    out_dir = Path(args.grade_file_dir)
+    out_dir = Path(req.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    written = 0
+    result = GradeFilesResult(out_dir)
     used: dict[str, str] = {}      # filename -> section name that claimed it
     for sid in sorted(section_ids,
                       key=lambda i: roster.section_by_id[i].get("name") or ""):
@@ -127,12 +148,12 @@ def make_grade_files(canvas: Canvas, args) -> int:
             (roster.users[u] for u in roster.users_of_section.get(sid, set())),
             key=lambda u: u.get("sortable_name") or u.get("name") or "")
         if not students:
-            print(f"  {section.get('name')}: no students, skipped")
+            reporter.info(f"  {section.get('name')}: no students, skipped")
             continue
         teachers = instructors.get(sid, [])
         if len(teachers) > 1:
-            print(f"  note: {section.get('name')} has several instructors "
-                  f"({', '.join(teachers)}); using {teachers[0]}")
+            reporter.info(f"  note: {section.get('name')} has several instructors "
+                          f"({', '.join(teachers)}); using {teachers[0]}")
 
         # Two sections can share a prefix (A2-8 and A2-9 both reduce to "A2"),
         # so the second one keeps its full section name instead of clobbering
@@ -140,24 +161,25 @@ def make_grade_files(canvas: Canvas, args) -> int:
         section_name = section.get("name") or str(sid)
         name = grade_file_name(section_name, label, ay, term)
         if name in used:
-            print(f"  note: {section_name} and {used[name]} share a prefix; "
-                  f"using the full section name for {section_name}")
+            reporter.info(f"  note: {section_name} and {used[name]} share a prefix; "
+                          f"using the full section name for {section_name}")
             name = (f"{slug(section_name, 20)}-{label}"
                     f"_Grading-{ay}-{term}.txt")
         used[name] = section_name
         path = out_dir / name
-        if path.exists() and not args.force:
-            print(f"  ! {path} exists; not overwritten (use --force)")
+        if path.exists() and not req.force:
+            reporter.info(f"  ! {path} exists; not overwritten (use --force)")
+            result.kept.append(path)
             continue
         path.write_text(
             render_grade_file(assignment, label, section,
                               teachers[0] if teachers else "", students),
             encoding="utf-8")
-        print(f"  {path}  ({len(students)} students)")
-        written += 1
+        reporter.info(f"  {path}  ({len(students)} students)")
+        result.written.append(path)
 
-    print(f"\n{written} file(s) written to {out_dir}")
-    return 0
+    reporter.info(f"\n{len(result.written)} file(s) written to {out_dir}")
+    return result
 
 
 # --------------------------------------------------------------------------
