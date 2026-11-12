@@ -32,14 +32,27 @@ URL_RE = re.compile(r"https?://[^\s\"'<>\[\](){},;|]+")
 CANVAS_FILE_ID_RE = re.compile(r"/files/(\d+)")
 
 
-UPLOAD_HOST_HINTS = ("inst-fs", "inscloudgate", "instructure", "quiz-lti",
-                     "amazonaws.com")
+# Report cells hold text students typed, so a link is only fetched if it
+# points at the Canvas host itself or at a host under one of these domains
+# (Instructure's file stores and the S3 buckets they hand out pre-signed
+# links to). Matched as whole domain suffixes, https only, default port, no
+# user-info: "instructure.evil.example" or "http://10.0.0.5/files/1" are
+# not followed (review finding 2).
+TRUSTED_HOST_SUFFIXES = (".instructure.com", ".inscloudgate.net", ".amazonaws.com")
 
 
 def _is_file_link(url: str, canvas_host: str) -> bool:
-    host = requests.utils.urlparse(url).netloc.lower()
-    return (host == canvas_host or any(h in host for h in UPLOAD_HOST_HINTS)
-            or bool(CANVAS_FILE_ID_RE.search(url)))
+    try:
+        u = requests.utils.urlparse(url)
+        port = u.port
+    except ValueError:
+        return False
+    if u.scheme != "https" or u.username or u.password or port not in (None, 443):
+        return False
+    host = (u.hostname or "").lower()
+    if not host:
+        return False
+    return host == canvas_host or any(host.endswith(s) for s in TRUSTED_HOST_SUFFIXES)
 
 
 def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
@@ -51,7 +64,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
     if len(table) < 2:
         return 0, ["file uploads: the student analysis report has no rows"]
     header, body = table[0], table[1:]
-    canvas_host = requests.utils.urlparse(canvas.base).netloc.lower()
+    canvas_host = (requests.utils.urlparse(canvas.base).hostname or "").lower()
 
     roster = plan.roster or Roster(canvas.sections(course_id),
                                    canvas.student_enrollments(course_id))
@@ -101,7 +114,9 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
         status, fname = "", ""
         try:
             m = CANVAS_FILE_ID_RE.search(url)
-            host = requests.utils.urlparse(url).netloc.lower()
+            # _is_file_link has already required https on a trusted host, so
+            # the token is only ever sent to the Canvas host over https.
+            host = (requests.utils.urlparse(url).hostname or "").lower()
             if m and host == canvas_host:
                 meta = canvas.file(m.group(1))
                 fname = safe_filename(meta.get("display_name") or meta.get("filename")

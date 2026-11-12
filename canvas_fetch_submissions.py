@@ -369,7 +369,7 @@ from painter.services.quiz_plan import (  # noqa: F401
 )
 from painter.services.quiz_uploads import (  # noqa: F401
     CANVAS_FILE_ID_RE, LAUNCH_SESSION_RE, QUIZ_RESULTS_RE, QUIZ_SESSION_RE,
-    UPLOAD_HOST_HINTS, URL_RE, _is_file_link, browser_quiz_uploads,
+    TRUSTED_HOST_SUFFIXES, URL_RE, _is_file_link, browser_quiz_uploads,
     download_report_uploads, submission_quiz_session, uploads_in_results,
 )
 from painter.services.quiz_export import (  # noqa: F401

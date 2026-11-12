@@ -194,12 +194,25 @@ def test_state_file_round_trip(tmp_path):
     assert _load_state(p) == {"k": 1} and json.loads(p.read_text()) == {"k": 1}
 
 
-@pytest.mark.xfail(strict=True, reason="review finding 2: link check accepts hosts that "
-                   "merely contain a trusted name, and any host with /files/<n>")
 def test_file_link_check_rejects_lookalike_hosts():
+    """Review finding 2."""
     host = BASE.split("//")[1]
     assert not _is_file_link("https://instructure.evil.example/x", host)
     assert not _is_file_link("http://10.0.0.5/files/1", host)
+    assert not _is_file_link("https://evil.example/files/1", host)
+    assert not _is_file_link("https://x.inscloudgate.net.evil.example/a", host)
+    assert not _is_file_link("https://user@canvas.test/a", host)
+    assert not _is_file_link("https://canvas.test:8443/a", host)
+    assert not _is_file_link(f"http://{host}/files/9", host)        # token over http
+    assert not _is_file_link("https://192.168.1.1/a.pdf", host)
+
+
+def test_file_link_check_accepts_canvas_and_instructure_stores():
+    host = BASE.split("//")[1]
+    assert _is_file_link(f"{BASE}/files/9/download", host)
+    assert _is_file_link("https://inst-fs-iad-prod.inscloudgate.net/files/abc", host)
+    assert _is_file_link("https://school.quiz-lti-iad-prod.instructure.com/x", host)
+    assert _is_file_link("https://bucket.s3.amazonaws.com/a.pdf?sig=1", host)
 
 
 def test_quiz_report_without_job_id_is_not_reposted(fake_canvas, tmp_path):
