@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 from painter.canvas.client import Canvas
-from painter.domain.assignments import quiz_kind
+from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts
 from painter.domain.naming import flat_filename, safe_filename, slug, student_dir_name
 from painter.domain.roster import Roster, assigned_students, select_students
@@ -131,8 +131,8 @@ def run_download(canvas: Canvas, args, run_started: datetime) -> int:
     failures = 0
     new_quizzes_without_files: list[dict] = []
 
-    for idx, assign in enumerate(assignments, start=1):
-        adir = out_root / f"{idx:02d}_{slug(assign['name'])}"
+    for assign in assignments:
+        adir = assignment_folder(out_root, assign)
         due = DueDates(assign)
         base_str = fmt_ts(due.base, tz) or "no due date"
         is_new_quiz = quiz_kind(assign) == "new"

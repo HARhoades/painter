@@ -52,10 +52,10 @@ def test_download_default_layout(fake_canvas, run_cli, tmp_path):
     xlsx = [f for f in files if f.startswith("submission_log_")]
     assert len(xlsx) == 1
     assert [f for f in files if f not in xlsx] == [
-        "01_DATE-Scenario/Doe-Jane_501/essay.pdf",
-        "01_DATE-Scenario/Roe-Rick_502/analysis.zip",
-        "01_DATE-Scenario/Roe-Rick_502/analysis/data/in.txt",
-        "01_DATE-Scenario/Roe-Rick_502/analysis/main.py",
+        "DATE-Scenario_7001/Doe-Jane_501/essay.pdf",
+        "DATE-Scenario_7001/Roe-Rick_502/analysis.zip",
+        "DATE-Scenario_7001/Roe-Rick_502/analysis/data/in.txt",
+        "DATE-Scenario_7001/Roe-Rick_502/analysis/main.py",
         "manifest.csv",
     ]
     assert "[LATE +1d]" in out and "extracted -> analysis/" in out
@@ -82,7 +82,7 @@ def test_download_by_section_flat_filtered(fake_canvas, run_cli, tmp_path):
                              "--section", "A2", "--by-section", "--flat",
                              "--no-extract", "--no-xlsx", "--tz", "America/New_York")
     assert code == 0, err
-    assert tree(out_dir) == ["01_DATE-Scenario/A2-8/Roe-Rick_502__analysis.zip",
+    assert tree(out_dir) == ["DATE-Scenario_7001/A2-8/Roe-Rick_502__analysis.zip",
                              "manifest.csv"]
     assert "Filtering to 2 student(s)." in out
     row = read_csv(out_dir / "manifest.csv")[0]
@@ -268,7 +268,7 @@ def test_export_quiz_content_and_answers_by_section(fake_canvas, run_cli, tmp_pa
     code, out, err = run_cli(*COMMON, "--assignment", "7003", "--export-quiz",
                              "--no-course-export", "--by-section", "--out", str(out_dir))
     assert code == 0, err
-    quiz = out_dir / "01_Quiz-1"
+    quiz = out_dir / "Quiz-1_7003"
     names = ["Quiz-1_new-quiz.json", "Quiz-1_qti-report.csv", "Quiz-1_qti.zip",
              "Quiz-1_student-answers.csv"]
     assert tree(quiz) == [f"{sec}/{n}" for sec in ("A1-8", "A2-8") for n in names]

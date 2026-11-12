@@ -95,13 +95,13 @@ Sorting submissions into section folders
 ----------------------------------------
   # move each student folder into a folder for their section (no Canvas
   # access needed -- everything comes from the roster CSV above)
-  python canvas_fetch_submissions.py --organize ./submissions/03_DATE-Scenario \
+  python canvas_fetch_submissions.py --organize ./submissions/DATE-Scenario_67890 \
       --roster roster.csv
 
   # preview first; or copy into a new tree and leave the original untouched
-  python canvas_fetch_submissions.py --organize ./submissions/03_DATE-Scenario \
+  python canvas_fetch_submissions.py --organize ./submissions/DATE-Scenario_67890 \
       --roster roster.csv --dry-run
-  python canvas_fetch_submissions.py --organize ./submissions/03_DATE-Scenario \
+  python canvas_fetch_submissions.py --organize ./submissions/DATE-Scenario_67890 \
       --roster roster.csv --organize-to ./by_section
 
   Every section in the roster gets a folder named for it (e.g. A2-8), even if
@@ -283,7 +283,7 @@ openpyxl (pip install openpyxl); use --no-xlsx to skip it.
 Output layout
 -------------
   out/
-    01_Homework-1/
+    Homework-1_67890/
       Doe-Jane_884321/
         analysis.zip
         analysis/            <- extracted contents
@@ -292,7 +292,7 @@ Output layout
 
   With --by-section --flat:
   out/
-    01_Homework-1/
+    Homework-1_67890/
       Lab-002/
         Doe-Jane_884321__analysis.zip
         Doe-Jane_884321__analysis/    <- extracted contents (omit with --no-extract)
@@ -329,7 +329,7 @@ from painter.domain.roster import (  # noqa: F401
     split_name,
 )
 from painter.domain.assignments import (  # noqa: F401
-    assignment_folder, quiz_kind,
+    assignment_dir_name, assignment_folder, quiz_kind,
 )
 from painter.storage.files import (  # noqa: F401
     ARCHIVE_SUFFIXES, download, extract,

@@ -20,21 +20,35 @@ def quiz_kind(assignment: dict) -> str | None:
     return None
 
 
-def assignment_folder(out_root: Path, assignment: dict) -> Path:
-    """The assignment's folder in the --out tree.
+def assignment_dir_name(assignment: dict) -> str:
+    """<Name>_<assignment id>: the same in every run, whatever the filters,
+    and distinct for two assignments with the same name (review finding 3)."""
+    name = slug(assignment.get("name") or "assignment")
+    return f"{name}_{assignment['id']}"
 
-    Reuses an existing NN_<name> folder (from a download run) if there is
-    exactly one; otherwise uses 01_<name>, the name a download run with this
-    single --assignment would create.
+
+def assignment_folder(out_root: Path, assignment: dict) -> Path:
+    """The assignment's folder in the --out tree: <Name>_<id>.
+
+    Older versions named it NN_<Name>, where NN depended on which assignments
+    the run was filtered to. If the new folder does not exist yet and exactly
+    one such NN_<Name> folder does, it is renamed once so earlier downloads
+    and job state carry over. With several candidates nothing is renamed,
+    because there is no way to tell which assignment each belonged to.
     """
-    name = slug(assignment.get("name") or str(assignment.get("id")))
+    target = out_root / assignment_dir_name(assignment)
+    if target.exists() or not out_root.is_dir():
+        return target
+    name = slug(assignment.get("name") or "assignment")
     pattern = re.compile(r"^\d{2,}_" + re.escape(name) + r"$")
-    if out_root.is_dir():
-        hits = [d for d in out_root.iterdir() if d.is_dir() and pattern.match(d.name)]
-        if len(hits) == 1:
-            return hits[0]
-        if len(hits) > 1:
-            print(f"  note: several folders match {name}; using {hits[0].name}",
-                  file=sys.stderr)
-            return sorted(hits)[0]
-    return out_root / f"01_{name}"
+    legacy = sorted(d for d in out_root.iterdir() if d.is_dir() and pattern.match(d.name))
+    if len(legacy) == 1:
+        legacy[0].rename(target)
+        print(f"  renamed {legacy[0].name}/ -> {target.name}/ (folders are now "
+              "named by assignment ID)", file=sys.stderr)
+    elif legacy:
+        print(f"  note: {', '.join(d.name for d in legacy)} are from an older "
+              f"version and could belong to any assignment named {name}; "
+              f"writing to {target.name}/ and leaving them as they are",
+              file=sys.stderr)
+    return target
