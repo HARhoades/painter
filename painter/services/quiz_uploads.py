@@ -77,25 +77,9 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
     found = find_student_column(header, body, roster)
     col_student, _, uid_of = found if found else (None, None, {})
 
-    links = []   # (row, column, url)
-    for r, row in enumerate(body):
-        for c, cell in enumerate(row):
-            if c == col_student:
-                continue
-            for url in URL_RE.findall(cell or ""):
-                url = url.rstrip(".")
-                if _is_file_link(url, canvas_host):
-                    links.append((r, c, url))
+    links = _report_links(body, col_student, canvas_host)
     if not links:
-        upload_cells = sum(1 for row in body for cell in row
-                           if "file" in (cell or "").casefold()
-                           and "upload" in (cell or "").casefold())
-        return 0, ["file uploads: the student analysis report contains no file "
-                   "links, so the uploads can't be fetched this way"
-                   + (f" ({upload_cells} cell(s) mention File Upload, so the "
-                      "report lists those answers without a link)"
-                      if upload_cells else "")
-                   + ". Report columns: " + ", ".join(header)]
+        return 0, [_no_links_note(header, body)]
 
     reporter.info(f"  {len(links)} file link(s) found in the report")
     saved, notes, log = 0, [], []
@@ -118,25 +102,11 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
         question = slug(header[c] if c < len(header) else f"col{c}", 30)
         status, fname = "", ""
         try:
-            m = CANVAS_FILE_ID_RE.search(url)
-            # _is_file_link has already required https on a trusted host, so
-            # the token is only ever sent to the Canvas host over https.
-            host = (requests.utils.urlparse(url).hostname or "").lower()
-            if m and host == canvas_host:
-                meta = canvas.file(m.group(1))
-                fname = safe_filename(meta.get("display_name") or meta.get("filename")
-                                      or m.group(1))
-                target = folder / f"{question}__{fname}"
-                fresh = canvas.fetch_file(meta["url"], target, meta.get("size"))
-                if fresh.note:
-                    reporter.warning(fresh.note)
-            else:
-                fname = safe_filename(requests.utils.unquote(
-                    requests.utils.urlparse(url).path.rsplit("/", 1)[-1]) or "file")
-                target = folder / f"{question}__{fname}"
-                fresh = canvas.fetch_file(url, target, auth=(host == canvas_host))
-                if fresh.note:
-                    reporter.warning(fresh.note)
+            fname, target, fetch = _report_link_target(canvas, url, canvas_host,
+                                                       folder, question)
+            fresh = fetch()
+            if fresh.note:
+                reporter.warning(fresh.note)
             saved += 1
             status = "downloaded" if fresh else "cached"
             reporter.info(f"    {status} {target.relative_to(base)}")
@@ -156,6 +126,55 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
                      "(see the uploads log)")
     write_uploads_logs(plan, stem, log)
     return saved, notes
+
+
+def _report_links(body: list[list[str]], col_student: int | None,
+                  canvas_host: str) -> list[tuple[int, int, str]]:
+    """(row, column, url) for every trusted file link in the report's cells."""
+    links = []
+    for r, row in enumerate(body):
+        for c, cell in enumerate(row):
+            if c == col_student:
+                continue
+            for url in URL_RE.findall(cell or ""):
+                url = url.rstrip(".")
+                if _is_file_link(url, canvas_host):
+                    links.append((r, c, url))
+    return links
+
+
+def _no_links_note(header: list[str], body: list[list[str]]) -> str:
+    upload_cells = sum(1 for row in body for cell in row
+                       if "file" in (cell or "").casefold()
+                       and "upload" in (cell or "").casefold())
+    return ("file uploads: the student analysis report contains no file "
+            "links, so the uploads can't be fetched this way"
+            + (f" ({upload_cells} cell(s) mention File Upload, so the "
+               "report lists those answers without a link)"
+               if upload_cells else "")
+            + ". Report columns: " + ", ".join(header))
+
+
+def _report_link_target(canvas: Canvas, url: str, canvas_host: str, folder: Path,
+                        question: str):
+    """Where one linked file goes (<question>__<name>) and how to fetch it. A
+    Canvas file link is resolved through the Files API (its real name and
+    size); any other trusted link is fetched as is. Returns (name, path,
+    fetch) where fetch() downloads it and returns the FetchResult."""
+    m = CANVAS_FILE_ID_RE.search(url)
+    # _is_file_link has already required https on a trusted host, so the
+    # token is only ever sent to the Canvas host over https.
+    host = (requests.utils.urlparse(url).hostname or "").lower()
+    if m and host == canvas_host:
+        meta = canvas.file(m.group(1))
+        fname = safe_filename(meta.get("display_name") or meta.get("filename")
+                              or m.group(1))
+        target = folder / f"{question}__{fname}"
+        return fname, target, lambda: canvas.fetch_file(meta["url"], target, meta.get("size"))
+    fname = safe_filename(requests.utils.unquote(
+        requests.utils.urlparse(url).path.rsplit("/", 1)[-1]) or "file")
+    target = folder / f"{question}__{fname}"
+    return fname, target, lambda: canvas.fetch_file(url, target, auth=(host == canvas_host))
 
 
 def write_uploads_logs(plan: QuizExportPlan, stem: str, log: list[dict]) -> list[Path]:

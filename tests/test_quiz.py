@@ -246,3 +246,24 @@ def test_quiz_report_without_job_id_is_not_reposted(fake_canvas, tmp_path):
         run_quiz_report(canvas, 100, 7001, tmp_path / ".state.json",
                         tmp_path / "r.csv", timeout=5)
     assert sum(1 for m, p, _ in fake_canvas.calls if m == "POST" and p == path) == 1
+
+
+def test_report_upload_failure_keeps_the_file_name(fake_canvas, tmp_path):
+    """A link whose transfer fails is logged with its file name."""
+    from painter.canvas.client import Canvas
+    from painter.services.quiz_plan import QuizExportPlan
+    from painter.services.quiz_uploads import download_report_uploads
+    from painter.storage.tabular import read_records
+    raw = tmp_path / "report.csv"
+    raw.write_text("Name,ID,Q1\nJane Doe,501,https://bucket.s3.amazonaws.com/x/essay.pdf\n",
+                   encoding="utf-8")
+    import requests
+    def boom(*a, **k):
+        raise requests.ConnectionError("down")
+    canvas = Canvas(BASE, "t")
+    canvas.fetch_file = boom
+    plan = QuizExportPlan([tmp_path / "q"])
+    saved, notes = download_report_uploads(canvas, raw, plan, 100, "Quiz")
+    assert saved == 0 and any("could not be downloaded" in n for n in notes)
+    _, rows = read_records(tmp_path / "q" / "Quiz_uploads" / "uploads_log.csv")
+    assert rows[0]["file"] == "essay.pdf" and rows[0]["status"].startswith("failed: down")
