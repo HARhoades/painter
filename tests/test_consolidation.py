@@ -63,3 +63,17 @@ def test_atomic_write_keeps_all_or_nothing(tmp_path):
     with pytest.raises(ValueError):
         with atomic_write(target, "r"):
             pass
+
+
+def test_a3_csv_is_read_and_written_in_one_place():
+    assert where(["csv", "."]) == {"storage/tabular.py"}
+
+
+def test_write_csv_dicts_and_lists_with_bom(tmp_path):
+    from painter.storage.tabular import read_records, read_table, write_csv
+    p = write_csv(tmp_path / "a.csv", ["name", "n"], [{"name": "Zoë"}, {"name": "B", "n": 2}])
+    assert p.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert read_records(p) == (["name", "n"], [{"name": "Zoë", "n": ""}, {"name": "B", "n": "2"}])
+    q = write_csv(tmp_path / "b.csv", ["x", "y"], [["1", "2"]])
+    assert read_table(q) == [["x", "y"], ["1", "2"]]
+    assert read_table(write_csv(tmp_path / "c.csv", ["only"], [])) == [["only"]]

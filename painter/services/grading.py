@@ -1,7 +1,6 @@
 """Posting grades and comments: plan, post, verify."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +16,7 @@ from painter.domain.roster import Roster
 from painter.services.grade_files import (
     GradeEntry, GradeFile, GradeFileError, parse_grade_file,
 )
+from painter.storage.tabular import write_csv
 
 
 EXCUSED_WORDS = {"ex", "excused", "excuse"}
@@ -438,12 +438,7 @@ def _write_post_log(rows: list[dict], log_dir: Path, run_started: datetime,
                     reporter: Reporter) -> Path | None:
     log_path = log_dir / run_started.strftime("grade_post_log_%Y%m%d_%H%M%S.csv")
     try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        # BOM, like every other CSV here, so Excel reads accented names.
-        with open(log_path, "w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(rows)
+        write_csv(log_path, list(rows[0].keys()), rows)
         reporter.info(f"\nLog: {log_path}")
         return log_path
     except OSError as exc:

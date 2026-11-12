@@ -1,7 +1,6 @@
 """Roster CSV export."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from painter.domain.roster import (
 )
 from painter.domain.selection import Selection
 from painter.events import NULL, Reporter, emit
+from painter.storage.tabular import write_csv
 
 
 # --------------------------------------------------------------------------
@@ -80,12 +80,7 @@ def export_roster_csv(canvas: Canvas, req: RosterExportRequest,
                              str(r["Student Canvas ID"]),
                              r["Section Name"].casefold()))
 
-    path = Path(req.path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=ROSTER_CSV_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
+    path = write_csv(Path(req.path), ROSTER_CSV_COLUMNS, rows)
 
     students = len({r["Student Canvas ID"] for r in rows})
     extra = len(rows) - students

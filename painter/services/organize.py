@@ -1,7 +1,6 @@
 """Sorting downloaded submissions into section folders (offline)."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,13 +12,13 @@ from painter.domain.naming import slug
 from painter.domain.roster import best_matches, catch_all_sections
 from painter.errors import Cancelled, InvalidInput
 from painter.events import NULL, Reporter
+from painter.storage.tabular import read_records, write_csv
 
 
 def read_roster_csv(path: Path) -> list[dict]:
     """Rows of a --roster-csv file (header names, not positions, are used)."""
     try:
-        with open(path, newline="", encoding="utf-8-sig") as fh:
-            rows = list(csv.DictReader(fh))
+        _, rows = read_records(path)
     except OSError as exc:
         raise InvalidInput(f"Can't read roster {path}: {exc}")
     need = {"Student Canvas ID", "Section Name"}
@@ -282,12 +281,8 @@ def execute_organize(plan: OrganizePlan, reporter: Reporter = NULL) -> OrganizeR
                      "Destination": str(it.target), "Matched By": it.how,
                      "Result": result + it.note})
 
-    plan.dest_root.mkdir(parents=True, exist_ok=True)
-    log = plan.dest_root / f"organize_log_{datetime.now():%Y%m%d_%H%M%S}.csv"
-    with open(log, "w", newline="", encoding="utf-8-sig") as fh:
-        w = csv.DictWriter(fh, fieldnames=LOG_COLUMNS)
-        w.writeheader()
-        w.writerows(rows)
+    log = write_csv(plan.dest_root / f"organize_log_{datetime.now():%Y%m%d_%H%M%S}.csv",
+                    LOG_COLUMNS, rows)
     reporter.info(f"\nLog: {log}")
     result = OrganizeResult(done, skipped, log)
     if stopped:

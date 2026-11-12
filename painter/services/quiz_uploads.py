@@ -1,7 +1,6 @@
 """New Quiz File Upload answers: from report links, or through a real browser."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
@@ -25,6 +24,7 @@ from painter.domain.roster import Roster
 from painter.services.quiz_plan import (
     QuizExportPlan, find_student_column, quiz_export_plan,
 )
+from painter.storage.tabular import read_table, write_csv
 
 
 # ---- File Upload answers (best effort, from the student analysis report) -----
@@ -67,8 +67,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
                             reporter: Reporter = NULL) -> tuple[int, list[str]]:
     """Download every file linked from the answers report into
     <folder>/<Quiz>_uploads/<Student>_<id>/. Returns (files saved, notes)."""
-    with open(raw, newline="", encoding="utf-8-sig") as fh:
-        table = list(csv.reader(fh))
+    table = read_table(raw)
     if len(table) < 2:
         return 0, ["file uploads: the student analysis report has no rows"]
     header, body = table[0], table[1:]
@@ -161,12 +160,7 @@ def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
                                                           plan.dirs[0]) == d]
         if not rows:
             continue
-        p = d / f"{stem}_uploads" / "uploads_log.csv"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "w", newline="", encoding="utf-8-sig") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
-            w.writeheader()
-            w.writerows(rows)
+        write_csv(d / f"{stem}_uploads" / "uploads_log.csv", list(rows[0].keys()), rows)
     return saved, notes
 
 
@@ -506,12 +500,8 @@ def browser_quiz_uploads(canvas: Canvas, req: BrowserUploadsRequest,
     for d in plan.dirs:
         rows = [x for x in log if (plan.dir_of or {}).get(x["user_id"], plan.dirs[0]) == d]
         if rows:
-            p = d / f"{stem}_uploads" / "uploads_log.csv"
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with open(p, "w", newline="", encoding="utf-8-sig") as fh:
-                w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
-                w.writeheader()
-                w.writerows(rows)
+            p = write_csv(d / f"{stem}_uploads" / "uploads_log.csv",
+                          list(rows[0].keys()), rows)
             log_paths.append(p)
             reporter.info(f"Log: {p}")
     reporter.info(f"\n{saved} file(s) saved, {no_files} student(s) with no upload, "

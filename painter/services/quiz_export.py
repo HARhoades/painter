@@ -1,7 +1,6 @@
 """Quiz export: content (JSON, QTI, course export) and student answers."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 from datetime import datetime
 import json
@@ -29,6 +28,7 @@ from painter.services.quiz_plan import (
     QuizExportPlan, find_student_column, quiz_export_plan,
 )
 from painter.services.quiz_uploads import download_report_uploads
+from painter.storage.tabular import CsvError, read_table, write_csv
 
 
 EXPORT_STATE_FILE = ".quiz_export_state.json"
@@ -65,8 +65,7 @@ def write_answers(raw: Path, plan: QuizExportPlan, name: str,
         shutil.copyfile(raw, dest)
         return [dest], []
 
-    with open(raw, newline="", encoding="utf-8-sig") as fh:
-        table = list(csv.reader(fh))
+    table = read_table(raw)
     if not table:
         raise ValueError("the student analysis report is empty")
     header, body = table[0], table[1:]
@@ -106,11 +105,7 @@ def write_answers(raw: Path, plan: QuizExportPlan, name: str,
             reporter.info(f"  {dropped} row(s) for students outside the selection left out")
     written = []
     for d, rows in out.items():
-        dest = d / name
-        with atomic_write(dest, "w", newline="", encoding="utf-8-sig") as fh:
-            w = csv.writer(fh)
-            w.writerow(header)
-            w.writerows(rows)
+        dest = write_csv(d / name, header, rows)
         reporter.info(f"  {dest}: {len(rows)} row(s)")
         written.append(dest)
     return written, notes
@@ -470,11 +465,8 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
         verify_qti_zip(qti_path, in_qti)
         shared.append(qti_path)
 
-        report_path = primary / f"{stem}_qti-report.csv"
-        with open(report_path, "w", newline="", encoding="utf-8-sig") as fh:
-            w = csv.DictWriter(fh, fieldnames=QTI_REPORT_COLUMNS)
-            w.writeheader()
-            w.writerows(builder.report)
+        report_path = write_csv(primary / f"{stem}_qti-report.csv",
+                                QTI_REPORT_COLUMNS, builder.report)
         shared.append(report_path)
         if in_qti < len(items):
             warnings.append(f"{len(items) - in_qti} item(s) are in the JSON but not "
@@ -500,10 +492,10 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
                         if n:
                             reporter.info(f"  {n} uploaded file(s) saved under "
                                   f"{stem}_uploads/")
-                    except (OSError, ValueError, csv.Error,
+                    except (OSError, ValueError, CsvError,
                             requests.RequestException) as exc:
                         warnings.append(f"file uploads: {exc}")
-            except (RuntimeError, TimeoutError, OSError, ValueError, csv.Error,
+            except (RuntimeError, TimeoutError, OSError, ValueError, CsvError,
                     requests.RequestException) as exc:
                 warnings.append(f"student answers: {exc}")
                 answers_missing = True

@@ -1,12 +1,10 @@
 """Download run: listings, submission files, manifest and run log."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from painter.storage.atomic import atomic_write
 from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts, parse_tz
@@ -17,6 +15,7 @@ from painter.errors import Cancelled, InvalidInput
 from painter.events import NULL, Note, Reporter, emit
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
+from painter.storage.tabular import read_records, write_csv
 
 
 def collect_attachments(sub: dict, include_history: bool) -> list[dict]:
@@ -49,20 +48,15 @@ def write_manifest(path: Path, rows: list[dict]) -> int:
     merged: dict[str, dict] = {}
     columns: list[str] = []
     if path.exists():
-        with open(path, newline="", encoding="utf-8-sig") as fh:
-            reader = csv.DictReader(fh)
-            columns = list(reader.fieldnames or [])
-            for old in reader:
-                merged[old.get("path") or f"#{len(merged)}"] = old
+        columns, old_rows = read_records(path)
+        for old in old_rows:
+            merged[old.get("path") or f"#{len(merged)}"] = old
     for row in rows:
         for key in row:
             if key not in columns:
                 columns.append(key)
         merged[str(row["path"])] = row
-    with atomic_write(path, "w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=columns, restval="")
-        writer.writeheader()
-        writer.writerows(merged.values())
+    write_csv(path, columns, merged.values())
     return len(merged)
 
 
