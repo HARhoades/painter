@@ -1,0 +1,10 @@
+# Text files are stored with LF in the repository and checked out with the
+# platform's line endings (CRLF on Windows). Keeps diffs free of
+# line-ending churn whatever the local core.autocrlf setting is.
+* text=auto
+
+*.xlsx binary
+*.zip binary
+*.imscc binary
+*.pdf binary
+*.png binary
