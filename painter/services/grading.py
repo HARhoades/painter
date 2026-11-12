@@ -479,3 +479,27 @@ def _write_post_log(rows: list[dict], log_dir: Path, run_started: datetime,
     except OSError as exc:
         reporter.warning(f"\nCould not write log {log_path}: {exc}")
         return None
+
+
+def replan_failed(canvas: Canvas, plans: GradePlanSet, result: PostResult,
+                  allow_duplicate_comments: bool = False) -> GradePlanSet:
+    """A plan set for just the rows that didn't verify, checked afresh.
+
+    Each source file is planned again against Canvas as it is now, then cut
+    down to the students whose row had problems. Re-planning (rather than
+    resending the old fields) means a comment that did reach Canvas is not
+    sent a second time, and before-values are current. Reads only.
+    """
+    failed = {(r["file"], r["user_id"]) for r in result.rows if r.get("problems")}
+    sources = [p.source.path for p in plans.plans
+               if any(f == p.source.path.name for f, _ in failed)]
+    courses = {p.course_id for p in plans.plans}
+    fresh = plan_grades(canvas, sources, courses.pop() if len(courses) == 1 else None,
+                        allow_duplicate_comments)
+    kept = []
+    for plan in fresh.plans:
+        plan.items = [it for it in plan.items
+                      if (plan.source.path.name, it.user_id) in failed]
+        if plan.items:
+            kept.append(plan)
+    return GradePlanSet(kept, fresh.errors)
