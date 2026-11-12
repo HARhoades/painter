@@ -161,6 +161,120 @@ Posting grades and comments
   already on the student's submission word-for-word is not posted again, so a
   rerun does not duplicate comments. Each run writes grade_post_log_*.csv.
 
+Exporting quiz answers and content
+----------------------------------
+  # every student's answers to one New Quiz, plus the quiz itself, in the
+  # quiz's folder under --out (the folder a download run with this
+  # --assignment uses)
+  python canvas_fetch_submissions.py --base-url https://school.instructure.com \
+      --course 12345 --assignment 280869 --export-quiz
+
+  # just two sections' answers, one folder per section; each folder also
+  # gets its own copy of the quiz content
+  python canvas_fetch_submissions.py --base-url https://school.instructure.com \
+      --course 12345 --assignment 280869 --export-quiz \
+      --section "Lab 001" --section "Lab 002" --by-section
+
+  # preview: shows how each question converts and where files would go;
+  # writes nothing and starts no report or export job
+  python canvas_fetch_submissions.py --base-url https://school.instructure.com \
+      --course 12345 --assignment 280869 --export-quiz --dry-run
+
+  Every output folder gets:
+
+    <Quiz>_student-answers.csv   Canvas's New Quizzes "student analysis"
+                                 report: what each student answered. Without
+                                 filters it is kept exactly as Canvas made it;
+                                 with --section/--student/--by-section only the
+                                 selected students' rows are kept, under the
+                                 report's own header (skip it: --no-answers)
+    <Quiz>_new-quiz.json         the quiz content: every question, answer
+                                 choice, correct answer and feedback exactly
+                                 as the New Quizzes API returns them, plus the
+                                 quiz settings
+    <Quiz>_qti.zip               QTI 1.2 package built from that JSON, in the
+                                 Classic Quizzes layout Canvas imports
+    <Quiz>_qti-report.csv        one line per question: converted or not, why
+    <Quiz>_course-export.imscc   a Common Cartridge course export of the quiz's
+                                 assignment -- kept only if it really contains
+                                 the quiz (skip it: --no-course-export)
+
+  Instructure does not document the answers report's columns, so rows are
+  matched to students by value, not header name: whichever column best
+  matches the course roster's Canvas user IDs (then SIS IDs, logins, names).
+  If none does, filtered answers are not written and the run says why. The
+  unfiltered report is deleted once it has been split.
+
+  Canvas's API has no QTI export for New Quizzes (only the quiz's Build >
+  Exports tab in the browser), which is why the QTI zip is built here.
+  Converted to QTI: multiple choice, true/false, multiple answer, essay, file
+  upload, numeric, matching, fill in the blank (typed and drop-down), and
+  stimuli (as text-only questions). Ordering, categorization, hot spot and
+  formula questions have no Classic equivalent and stay in the JSON only.
+  Questions drawn at random from an item bank cannot be exported: the API
+  returns only the bank's name. Each limit is listed in the report CSV.
+
+  New Quiz File Upload answers: a New Quiz submission is an LTI launch with
+  no attachments, so a normal download run finds no files for it (it says
+  so). Add --quiz-uploads to --export-quiz to download any file links the
+  student analysis report contains into <Quiz>_uploads/<Student>_<id>/, with
+  an uploads_log.csv. New Quizzes has no API for these files, so this is
+  best effort; if the report has no links the run says so and lists the
+  report's columns.
+
+  The reliable route is --browser-uploads, which uses a real browser
+  (pip install playwright) because the New Quizzes API only accepts the
+  token the quiz tool gets inside the browser:
+
+    python canvas_fetch_submissions.py --base-url https://school.instructure.com \
+        --course 12345 --assignment 290440 --browser-uploads --limit 3
+
+  The first run opens Chrome; sign in to Canvas there (SSO/CAC as usual)
+  and the run carries on by itself once Canvas loads. The session is kept in
+  ./canvas-browser-profile (keep that folder private), so later runs start
+  signed in.
+
+  If sign-in hangs (CAC certificate prompts often never appear in a browser
+  that Playwright starts), start the browser yourself and let the script
+  attach to it:
+
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" ^
+        --remote-debugging-port=9222 --user-data-dir=C:\\canvas-browser-profile
+    (Edge: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe")
+
+  Sign in to Canvas in that window, then run with
+  --browser-uploads --connect-browser http://localhost:9222
+
+  Each submitted student is opened in SpeedGrader, their File Upload files
+  are read from the quiz's own results and saved as <Quiz>_uploads/<Last-First>_<id>/Q<n>__<file>,
+  with uploads_log.csv. Files are matched to students by quiz session ID,
+  not by name. Reruns skip files already saved. --dry-run lists who would
+  be visited without opening a browser.
+
+  A Classic Quiz's content is exported with Canvas's own QTI content export;
+  student answers are only implemented for New Quizzes.
+
+  Jobs are never started twice: the report and export job IDs are saved in
+  the quiz folder (.quiz_export_state.json) as soon as Canvas returns them,
+  and a rerun after a timeout or interruption resumes them. If a report is
+  already being generated (Canvas answers 409), the tool waits for it. Files
+  are downloaded as soon as each job finishes.
+
+  Exit status: 0 = everything delivered; 1 = nothing exported (no selected
+  student has the quiz); 2 = answers and content delivered but the course
+  export did not finish (rerun to resume); 3 = the student answers were not
+  delivered (the reason is printed; the quiz content still was).
+
+Rate limits
+-----------
+  Canvas throttles each API token with a leaky bucket. Every request here is
+  sequential; throttled responses (429, or 403 "Rate Limit Exceeded") are
+  retried with exponential backoff capped at 60 s, honouring Retry-After;
+  requests slow down before the bucket runs dry, based on the
+  X-Rate-Limit-Remaining header; and background jobs are polled at a growing
+  interval capped at 30 s. Retries for a write (posting grades, starting an
+  export) happen only for throttling, never after a server error.
+
 Each download run also writes an Excel log named for the run's start time, e.g.
 submission_log_20260819_143005.xlsx, with sheets: Files (one row per
 downloaded file), By Student, By Section, and Run Summary. Requires
@@ -190,8 +304,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
+import random
 import re
+import shutil
 import sys
 import tarfile
 import time
@@ -205,6 +322,76 @@ import requests
 TOKEN_ENV = "CANVAS_API_TOKEN"
 ARCHIVE_SUFFIXES = {".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
 
+# --------------------------------------------------------------------------
+# Throttling, retry and polling limits
+# --------------------------------------------------------------------------
+# Canvas throttles per API token with a leaky bucket. Every response carries
+# X-Request-Cost and, when throttling applies, X-Rate-Limit-Remaining. A
+# throttled request is answered 429 (current docs) or 403 "Rate Limit
+# Exceeded" (older instances); both are retried here.
+MAX_ATTEMPTS = 6            # first try + 5 retries
+BACKOFF_BASE = 2.0          # seconds; doubles per retry ...
+BACKOFF_CAP = 60.0          # ... but never waits longer than this
+RATE_LOW_WATER = 150.0      # pace requests once the bucket drops below this
+RATE_REFILL_PER_SEC = 10.0  # approximate refill rate; Canvas does not publish it
+PACE_CAP = 20.0             # longest single pacing pause, seconds
+POLL_START = 2.0            # first wait when polling a background job
+POLL_FACTOR = 1.5           # each later wait is this much longer ...
+POLL_CAP = 30.0             # ... up to this upper bound between polls
+DOWNLOAD_ATTEMPTS = 4       # whole-file retries when a transfer is cut off
+
+
+def is_throttled(resp: requests.Response) -> bool:
+    """429, or the older 403 whose body says the rate limit was exceeded."""
+    if resp.status_code == 429:
+        return True
+    return resp.status_code == 403 and "rate limit" in (resp.text or "").lower()
+
+
+def retry_after_seconds(resp: requests.Response) -> float | None:
+    """Retry-After in seconds, if the server sent a numeric one."""
+    try:
+        value = float(resp.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def backoff_delay(attempt: int, retry_after: float | None = None) -> float:
+    """Wait before retry number `attempt` (0-based).
+
+    Exponential with jitter, capped at BACKOFF_CAP, so repeated throttling
+    never turns into a tight loop that drains the bucket again the moment it
+    refills. A server-supplied Retry-After wins, within the same cap.
+    """
+    if retry_after is not None:
+        return min(retry_after, BACKOFF_CAP)
+    ceiling = min(BACKOFF_CAP, BACKOFF_BASE * (2 ** attempt))
+    return ceiling / 2 + random.uniform(0, ceiling / 2)
+
+
+def poll_until(fetch, is_done, timeout: float, sleep=time.sleep,
+               start: float = POLL_START, factor: float = POLL_FACTOR,
+               cap: float = POLL_CAP, on_poll=None):
+    """Call fetch() until is_done(result) or timeout; returns (result, done).
+
+    The wait between polls starts at `start` seconds and grows by `factor`
+    each time, never exceeding `cap` and never sleeping past the deadline.
+    """
+    deadline = time.monotonic() + timeout
+    interval = start
+    result = fetch()
+    while not is_done(result):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return result, False
+        sleep(min(interval, remaining))
+        interval = min(cap, interval * factor)
+        result = fetch()
+        if on_poll:
+            on_poll(result)
+    return result, True
+
 
 # --------------------------------------------------------------------------
 # Canvas API client
@@ -215,35 +402,87 @@ class Canvas:
         self.per_page = per_page
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {token}"
+        self.sleep = time.sleep          # swapped out in tests
+        self.stats = {"requests": 0, "throttled": 0, "retries": 0,
+                      "paced_seconds": 0.0, "min_remaining": None}
+
+    def _note_rate(self, resp: requests.Response) -> float | None:
+        try:
+            remaining = float(resp.headers["X-Rate-Limit-Remaining"])
+        except (KeyError, ValueError):
+            return None
+        low = self.stats["min_remaining"]
+        self.stats["min_remaining"] = remaining if low is None else min(low, remaining)
+        return remaining
+
+    def _pace(self, remaining: float | None) -> None:
+        """Slow down before the bucket runs dry, instead of after a 429."""
+        if remaining is None or remaining >= RATE_LOW_WATER:
+            return
+        wait = min(PACE_CAP, (RATE_LOW_WATER - remaining) / RATE_REFILL_PER_SEC)
+        if wait > 0:
+            self.stats["paced_seconds"] += wait
+            self.sleep(wait)
 
     def _request(self, method: str, url: str, retry_server_errors: bool = True,
-                 **kw) -> requests.Response:
-        """Single request with backoff for throttling and transient 5xx.
+                 auth: bool = True, timeout: float = 60, **kw) -> requests.Response:
+        """One request, with backoff for throttling and transient failures.
 
-        Pass retry_server_errors=False for writes that are not safe to repeat:
+        Throttled responses (429, or 403 "rate limit") are always retried:
+        Canvas rejects those without processing them. Pass
+        retry_server_errors=False for writes that are not safe to repeat --
         a 5xx does not prove Canvas ignored the request, and resending a bulk
-        grade update would post every comment twice. Throttling (403 "rate
-        limit") is always retried, since Canvas rejects those unprocessed.
+        grade update or a content export would do the work twice. Connection
+        errors are retried for GETs only, for the same reason.
+
+        auth=False drops the Bearer header (pre-signed file URLs; some
+        storage backends reject it).
         """
+        headers = dict(kw.pop("headers", None) or {})
+        if not auth:
+            headers["Authorization"] = None   # requests drops None headers
+        idempotent = method.upper() == "GET"
         last = None
-        for attempt in range(5):
-            resp = self.session.request(method, url, timeout=60, **kw)
+        for attempt in range(MAX_ATTEMPTS):
+            final = attempt == MAX_ATTEMPTS - 1
+            try:
+                self.stats["requests"] += 1
+                resp = self.session.request(method, url, timeout=timeout,
+                                            headers=headers or None, **kw)
+            except (requests.ConnectionError, requests.Timeout):
+                if not idempotent or final:
+                    raise
+                self.stats["retries"] += 1
+                self.sleep(backoff_delay(attempt))
+                continue
             last = resp
-            throttled = resp.status_code == 403 and "rate limit" in resp.text.lower()
-            server_error = resp.status_code in (500, 502, 503, 504)
-            if throttled or (retry_server_errors and server_error):
-                time.sleep(2 ** attempt)
+            remaining = self._note_rate(resp)
+            if is_throttled(resp):
+                self.stats["throttled"] += 1
+                if final:
+                    break
+                self.stats["retries"] += 1
+                resp.close()
+                self.sleep(backoff_delay(attempt, retry_after_seconds(resp)))
+                continue
+            if retry_server_errors and resp.status_code in (500, 502, 503, 504):
+                if final:
+                    break
+                self.stats["retries"] += 1
+                resp.close()
+                self.sleep(backoff_delay(attempt))
                 continue
             resp.raise_for_status()
+            self._pace(remaining)
             return resp
         last.raise_for_status()
         return last
 
-    def paginate(self, path: str, params: dict | None = None):
-        """Yield items across all pages, following Canvas's Link headers."""
-        params = dict(params or {})
-        params.setdefault("per_page", self.per_page)
-        url = f"{self.base}/api/v1{path}"
+    def get_json(self, url: str, params: dict | None = None):
+        return self._request("GET", url, params=params).json()
+
+    def paginate_url(self, url: str, params: dict | None = None):
+        """Yield items across all pages of a full URL, following Link headers."""
         while url:
             resp = self._request("GET", url, params=params)
             params = None  # the "next" URL already carries the query string
@@ -253,6 +492,62 @@ class Canvas:
             else:
                 yield payload
             url = resp.links.get("next", {}).get("url")
+
+    def paginate(self, path: str, params: dict | None = None):
+        """Yield items across all pages of an /api/v1 path."""
+        params = dict(params or {})
+        params.setdefault("per_page", self.per_page)
+        yield from self.paginate_url(f"{self.base}/api/v1{path}", params)
+
+    def fetch_file(self, url: str, dest: Path, expected_size: int | None = None,
+                   auth: bool = False) -> bool:
+        """Stream a file to disk. Returns True if it was newly downloaded.
+
+        Goes through _request, so throttling and 5xx are retried with
+        backoff; a transfer cut off part-way is restarted from scratch up to
+        DOWNLOAD_ATTEMPTS times. Written to <dest>.part and renamed only when
+        complete, so a failed run never leaves a truncated file in place.
+        """
+        if dest.exists() and (expected_size is None or dest.stat().st_size == expected_size):
+            return False  # already have it -- makes reruns cheap
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".part")
+        for attempt in range(DOWNLOAD_ATTEMPTS):
+            try:
+                with self._request("GET", url, auth=auth, stream=True,
+                                   timeout=120) as r:
+                    with open(tmp, "wb") as fh:
+                        for chunk in r.iter_content(chunk_size=1 << 16):
+                            fh.write(chunk)
+                break
+            except (requests.ConnectionError, requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError):
+                if attempt == DOWNLOAD_ATTEMPTS - 1:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                self.stats["retries"] += 1
+                self.sleep(backoff_delay(attempt))
+            except Exception:
+                tmp.unlink(missing_ok=True)
+                raise
+        if expected_size is not None and tmp.stat().st_size != expected_size:
+            print(f"      ! {dest.name}: {tmp.stat().st_size} bytes, Canvas listed "
+                  f"{expected_size}", file=sys.stderr)
+        tmp.replace(dest)
+        return True
+
+    def rate_summary(self) -> str:
+        s = self.stats
+        parts = [f"{s['requests']} request(s)"]
+        if s["throttled"]:
+            parts.append(f"{s['throttled']} throttled")
+        if s["retries"]:
+            parts.append(f"{s['retries']} retried")
+        if s["paced_seconds"]:
+            parts.append(f"paused {s['paced_seconds']:.0f}s to stay under the rate limit")
+        if s["min_remaining"] is not None:
+            parts.append(f"lowest X-Rate-Limit-Remaining {s['min_remaining']:.0f}")
+        return ", ".join(parts)
 
     def assignments(self, course_id: int):
         """Assignments, including per-section and per-student date overrides.
@@ -344,17 +639,84 @@ class Canvas:
         return self._request("POST", url, data=form,
                              retry_server_errors=False).json()
 
-    def wait_for_progress(self, progress: dict, timeout: float = 300.0,
-                          interval: float = 2.0) -> dict:
-        """Poll a Progress object until it completes, fails, or times out."""
+    def wait_for_progress(self, progress: dict, timeout: float = 300.0) -> dict:
+        """Poll a Progress object until it completes, fails, or times out.
+
+        The polling interval grows from POLL_START to at most POLL_CAP, so a
+        slow job costs a handful of requests rather than one every 2 seconds.
+        """
         url = progress.get("url") or f"{self.base}/api/v1/progress/{progress['id']}"
-        deadline = time.monotonic() + timeout
-        while progress.get("workflow_state") not in ("completed", "failed"):
-            if time.monotonic() > deadline:
-                break
-            time.sleep(interval)
-            progress = self._request("GET", url).json()
+        first = [progress]
+
+        def fetch():
+            return first.pop() if first else self.get_json(url)
+
+        progress, _ = poll_until(
+            fetch, lambda p: p.get("workflow_state") in ("completed", "failed"),
+            timeout, sleep=self.sleep)
         return progress
+
+    # ---- quiz content export -------------------------------------------------
+    def new_quiz(self, course_id: int, assignment_id: int) -> dict:
+        return self.get_json(
+            f"{self.base}/api/quiz/v1/courses/{course_id}/quizzes/{assignment_id}")
+
+    def new_quiz_items(self, course_id: int, assignment_id: int) -> list[dict]:
+        """Every item in a New Quiz (questions, stimuli, bank entries, banks).
+
+        No per_page is sent: the quiz API documents no paging parameters.
+        Link headers are still followed in case a long quiz is paged.
+        """
+        return list(self.paginate_url(
+            f"{self.base}/api/quiz/v1/courses/{course_id}/quizzes/"
+            f"{assignment_id}/items"))
+
+    def create_content_export(self, course_id: int, export_type: str,
+                              select: dict[str, list]) -> dict:
+        """POST a content export job. Never retried on a 5xx: each POST
+        starts a new job, and a 5xx does not prove Canvas didn't start one."""
+        form: list[tuple[str, str]] = [("export_type", export_type),
+                                       ("skip_notifications", "true")]
+        for kind, ids in select.items():
+            form += [(f"select[{kind}][]", str(i)) for i in ids]
+        return self._request(
+            "POST", f"{self.base}/api/v1/courses/{course_id}/content_exports",
+            data=form, retry_server_errors=False).json()
+
+    def content_export(self, course_id: int, export_id: int) -> dict:
+        return self.get_json(
+            f"{self.base}/api/v1/courses/{course_id}/content_exports/{export_id}")
+
+    def content_exports(self, course_id: int, limit: int = 20) -> list[dict]:
+        """Most recent exports first; only the first page is needed."""
+        return self.get_json(
+            f"{self.base}/api/v1/courses/{course_id}/content_exports",
+            {"per_page": limit})
+
+    def create_quiz_report(self, course_id: int, assignment_id: int,
+                           report_type: str = "student_analysis",
+                           fmt: str = "csv") -> dict:
+        """Start a New Quizzes report; returns its Progress object.
+
+        Not retried on a 5xx (it starts a job). Canvas answers 409 while a
+        report of the same type is already being generated.
+        """
+        return self._request(
+            "POST", f"{self.base}/api/quiz/v1/courses/{course_id}/quizzes/"
+                    f"{assignment_id}/reports",
+            data={"quiz_report[report_type]": report_type,
+                  "quiz_report[format]": fmt},
+            retry_server_errors=False).json()
+
+    def progress(self, progress_id) -> dict:
+        return self.get_json(f"{self.base}/api/v1/progress/{progress_id}")
+
+    def self_user(self) -> dict:
+        return self.get_json(f"{self.base}/api/v1/users/self")
+
+    def file(self, file_id) -> dict:
+        """File metadata, including a pre-signed download url."""
+        return self.get_json(f"{self.base}/api/v1/files/{file_id}")
 
 
 # --------------------------------------------------------------------------
@@ -675,21 +1037,16 @@ def safe_filename(name: str) -> str:
     return name or "file"
 
 
-def download(url: str, dest: Path, expected_size: int | None = None) -> bool:
-    """Stream a file to disk. Returns True if it was newly downloaded."""
-    if dest.exists() and (expected_size is None or dest.stat().st_size == expected_size):
-        return False  # already have it — makes reruns cheap
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(dest.suffix + ".part")
-    # Canvas attachment URLs are pre-signed and redirect to blob storage;
-    # do NOT send the Bearer header along, some backends reject it.
-    with requests.get(url, stream=True, timeout=120) as r:
-        r.raise_for_status()
-        with open(tmp, "wb") as fh:
-            for chunk in r.iter_content(chunk_size=1 << 16):
-                fh.write(chunk)
-    tmp.replace(dest)
-    return True
+def download(canvas: Canvas, url: str, dest: Path,
+             expected_size: int | None = None) -> bool:
+    """Download a submission attachment. Returns True if newly downloaded.
+
+    Canvas attachment URLs are pre-signed and redirect to blob storage, so
+    the Bearer header is NOT sent (some backends reject it). Retries,
+    throttling backoff and the .part-then-rename handling come from
+    Canvas.fetch_file.
+    """
+    return canvas.fetch_file(url, dest, expected_size, auth=False)
 
 
 def extract(archive: Path, dest: Path) -> bool:
@@ -1340,8 +1697,6 @@ class RosterIndex:
 
 def organize_submissions(args) -> int:
     """--organize: move (or copy) student folders into one folder per section."""
-    import shutil
-
     src_root = Path(args.organize)
     if not src_root.is_dir():
         raise SystemExit(f"--organize: {src_root} is not a folder")
@@ -1459,6 +1814,1667 @@ def organize_submissions(args) -> int:
             w.writerows(log_rows)
         print(f"\nLog: {log}")
     return 0
+
+
+# --------------------------------------------------------------------------
+# Exporting a quiz's questions and answers
+# --------------------------------------------------------------------------
+# New Quizzes has no QTI export in the API (only the Build page's Exports
+# tab), so the questions are read from the New Quiz Items API, saved as JSON
+# exactly as returned, and converted here into a QTI 1.2 package in the
+# Classic Quizzes layout that Canvas's "QTI .zip file" import accepts.
+# Optionally a Common Cartridge course export of the quiz's assignment is
+# also requested and kept only if it actually contains the quiz.
+QTI_NS = "http://www.imsglobal.org/xsd/ims_qtiasiv1p2"
+CC_NS = "http://www.imsglobal.org/xsd/imsccv1p1/imscp_v1p1"
+CANVAS_META_NS = "http://canvas.instructure.com/xsd/cccv1p0"
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+EXPORT_STATE_FILE = ".quiz_export_state.json"
+EXPORT_FINAL_STATES = {"exported", "failed"}
+EXPORT_MAX_AGE_DAYS = 30        # Canvas deletes export packages after this
+ORPHAN_WINDOW_SECONDS = 180     # how far back to look for a job a failed POST started
+QTI_REPORT_COLUMNS = ["Position", "Item ID", "Entry Type", "Question Type",
+                      "Title", "Points", "In QTI", "Notes"]
+
+
+class Unsupported(Exception):
+    """An item that cannot be represented as a Classic Quizzes question."""
+
+
+def strip_html(text) -> str:
+    import html as _html
+    text = re.sub(r"<[^>]+>", " ", str(text or ""))
+    return " ".join(_html.unescape(text).split())
+
+
+def _num(value) -> str:
+    """Numbers as QTI wants them: 10 -> '10.0', 0.25 -> '0.25'."""
+    v = float(value)
+    return f"{v:.1f}" if v == int(v) and abs(v) < 1e15 else format(v, ".15g")
+
+
+def _el(parent, tag: str, text=None, **attrs):
+    import xml.etree.ElementTree as ET
+    attrs = {k.rstrip("_"): str(v) for k, v in attrs.items() if v is not None}
+    node = ET.SubElement(parent, tag, attrs) if parent is not None else ET.Element(tag, attrs)
+    if text is not None:
+        node.text = str(text)
+    return node
+
+
+def _mattext(parent, content, html: bool = True):
+    mat = _el(parent, "material")
+    return _el(mat, "mattext", content or "",
+               texttype="text/html" if html else "text/plain")
+
+
+def _xml_bytes(root) -> bytes:
+    import io
+    import xml.etree.ElementTree as ET
+    buf = io.BytesIO()
+    ET.ElementTree(root).write(buf, encoding="UTF-8", xml_declaration=True)
+    return buf.getvalue()
+
+
+class QtiItemWriter:
+    """Builds one Classic-Quizzes-style QTI <item> for a New Quiz question."""
+
+    def __init__(self, builder: "QtiBuilder", ident: str, title: str,
+                 qtype: str, points):
+        self.b = builder
+        self.notes: list[str] = []
+        self.item = _el(None, "item", ident=ident, title=title or "Question")
+        meta = _el(_el(self.item, "itemmetadata"), "qtimetadata")
+        self._meta = meta
+        self._field("question_type", qtype)
+        self._field("points_possible", _num(points or 0))
+        self.answer_ids_field = self._field("original_answer_ids", "")
+        self._field("assessment_question_identifierref", ident + "_aq")
+        self.presentation = _el(self.item, "presentation")
+        self.rp = None
+        self.feedback: dict[str, str] = {}
+
+    def _field(self, label: str, value: str):
+        f = _el(self._meta, "qtimetadatafield")
+        _el(f, "fieldlabel", label)
+        return _el(f, "fieldentry", value)
+
+    def set_answer_ids(self, ids) -> None:
+        self.answer_ids_field.text = ",".join(str(i) for i in ids)
+
+    def body(self, html: str) -> None:
+        _mattext(self.presentation, html)
+        if "<img" in (html or "").lower():
+            self.notes.append("embedded image stays a link to Canvas; "
+                              "not packaged in the zip")
+
+    def resprocessing(self, general_fb: str | None = None):
+        self.rp = _el(self.item, "resprocessing")
+        _el(_el(self.rp, "outcomes"), "decvar", maxvalue="100", minvalue="0",
+            varname="SCORE", vartype="Decimal")
+        if general_fb:
+            self._feedback_cond("general_fb", general_fb, other=True)
+        return self.rp
+
+    def _feedback_cond(self, ident: str, html: str, other: bool = False,
+                       varequal: tuple[str, str] | None = None) -> None:
+        cond = _el(self.rp, "respcondition", continue_="Yes")
+        cv = _el(cond, "conditionvar")
+        if other:
+            _el(cv, "other")
+        else:
+            _el(cv, "varequal", varequal[1], respident=varequal[0])
+        _el(cond, "displayfeedback", feedbacktype="Response", linkrefid=ident)
+        self.feedback[ident] = html
+
+    def score_cond(self, value, action: str = "Set", continue_: str | None = "No"):
+        cond = _el(self.rp, "respcondition", continue_=continue_)
+        cv = _el(cond, "conditionvar")
+        _el(cond, "setvar", value if isinstance(value, str) else _num(value),
+            action=action, varname="SCORE")
+        return cond, cv
+
+    def correct_feedback(self, cond, fb: dict) -> None:
+        if fb.get("correct"):
+            _el(cond, "displayfeedback", feedbacktype="Response", linkrefid="correct_fb")
+            self.feedback["correct_fb"] = fb["correct"]
+
+    def incorrect_feedback(self, fb: dict) -> None:
+        if fb.get("incorrect"):
+            self._feedback_cond("general_incorrect_fb", fb["incorrect"], other=True)
+
+    def finish(self):
+        for ident, html in self.feedback.items():
+            fbe = _el(self.item, "itemfeedback", ident=ident)
+            _mattext(_el(fbe, "flow_mat"), html)
+        return self.item
+
+
+class QtiBuilder:
+    """Turns New Quiz items into a QTI 1.2 package (Classic Quizzes flavour)."""
+
+    def __init__(self, quiz: dict, ident: str):
+        self.quiz = quiz
+        self.ident = ident
+        self.items = []                  # <item> elements, in quiz order
+        self.report: list[dict] = []
+        self._next = 1000
+
+    def new_id(self) -> int:
+        self._next += 1
+        return self._next
+
+    # ---- ordering ----------------------------------------------------------
+    @staticmethod
+    def ordered(items: list[dict]) -> list[dict]:
+        """Quiz order, with each stimulus's questions right after it."""
+        def pos(i):
+            try:
+                return float(i.get("position") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        by_stim: dict[str, list[dict]] = {}
+        top = []
+        ids = {str(i.get("id")) for i in items}
+        for it in items:
+            sid = it.get("stimulus_quiz_entry_id")
+            if sid and str(sid) in ids:
+                by_stim.setdefault(str(sid), []).append(it)
+            else:
+                top.append(it)
+        out = []
+        for it in sorted(top, key=pos):
+            out.append(it)
+            out += sorted(by_stim.get(str(it.get("id")), []), key=pos)
+        return out
+
+    # ---- items -----------------------------------------------------------------
+    def add(self, quiz_item: dict) -> None:
+        etype = quiz_item.get("entry_type") or ""
+        entry = quiz_item.get("entry") or {}
+        points = quiz_item.get("points_possible") or 0
+        row = {"Position": quiz_item.get("position", ""),
+               "Item ID": quiz_item.get("id", ""), "Entry Type": etype,
+               "Question Type": "", "Title": "", "Points": points,
+               "In QTI": "no", "Notes": ""}
+        notes: list[str] = []
+        try:
+            if etype == "Bank":
+                n = (quiz_item.get("properties") or {}).get("sample_num")
+                row["Title"] = entry.get("title", "")
+                raise Unsupported(
+                    f"draws {n or 'all'} question(s) at random from item bank "
+                    f"'{entry.get('title', '')}' ({entry.get('item_entry_count', '?')} "
+                    "items); bank contents are not available through the API")
+            if etype == "BankEntry":
+                notes.append(f"single question from item bank {entry.get('bank_id', '?')}")
+                etype = entry.get("entry_type") or "Item"
+                entry = entry.get("entry") or {}
+            row["Title"] = entry.get("title", "")
+            if etype == "Stimulus":
+                row["Question Type"] = "stimulus"
+                w = self._stimulus(quiz_item, entry)
+            elif etype == "Item":
+                slug_ = entry.get("interaction_type_slug") or ""
+                row["Question Type"] = slug_
+                w = self._question(quiz_item, entry, slug_, points)
+            else:
+                raise Unsupported(f"unknown entry type {etype!r}")
+            notes += w.notes
+            self.items.append(w.finish())
+            row["In QTI"] = "yes"
+        except Unsupported as exc:
+            notes.append(str(exc))
+        row["Notes"] = "; ".join(notes)
+        self.report.append(row)
+
+    def _writer(self, quiz_item: dict, entry: dict, qtype: str, points) -> QtiItemWriter:
+        ident = f"i{quiz_item.get('id', self.new_id())}"
+        return QtiItemWriter(self, ident, entry.get("title") or "Question", qtype, points)
+
+    def _stimulus(self, quiz_item: dict, entry: dict) -> QtiItemWriter:
+        w = self._writer(quiz_item, entry, "text_only_question", 0)
+        parts = []
+        if entry.get("title"):
+            parts.append(f"<h3>{_escape(entry['title'])}</h3>")
+        parts.append(entry.get("body") or "")
+        if entry.get("instructions"):
+            parts.append(f"<p>{entry['instructions']}</p>")
+        w.body("\n".join(parts))
+        w.resprocessing()
+        w.notes.append("stimulus exported as a text-only question; Classic "
+                       "Quizzes cannot pin it beside its questions")
+        return w
+
+    def _question(self, quiz_item, entry, slug_, points) -> QtiItemWriter:
+        handler = {
+            "choice": self._choice, "true-false": self._true_false,
+            "multi-answer": self._multi_answer, "essay": self._essay,
+            "file-upload": self._file_upload, "numeric": self._numeric,
+            "matching": self._matching, "rich-fill-blank": self._rich_fill_blank,
+            "fill-blank": self._fill_blank,
+        }.get(slug_)
+        if handler is None:
+            raise Unsupported(f"'{slug_}' questions have no Classic Quizzes "
+                              "equivalent; kept in the JSON only")
+        return handler(quiz_item, entry, points)
+
+    # Each handler gets the QuizItem, its QuestionItem entry, and points.
+    @staticmethod
+    def _choice_body(c: dict) -> str:
+        return c.get("item_body") or c.get("itemBody") or ""
+
+    def _choice(self, qi, e, points):
+        data, sd = e.get("interaction_data") or {}, e.get("scoring_data") or {}
+        fb = e.get("feedback") or {}
+        choices = sorted(data.get("choices") or [], key=lambda c: c.get("position") or 0)
+        correct = sd.get("value")
+        ids = {c["id"]: self.new_id() for c in choices}
+        if correct not in ids:
+            raise Unsupported("no correct answer recorded")
+        w = self._writer(qi, e, "multiple_choice_question", points)
+        w.body(e.get("item_body"))
+        lid = _el(w.presentation, "response_lid", ident="response1", rcardinality="Single")
+        rc = _el(lid, "render_choice")
+        for c in choices:
+            _mattext(_el(rc, "response_label", ident=ids[c["id"]]), self._choice_body(c))
+        w.set_answer_ids(ids.values())
+        w.resprocessing(fb.get("neutral"))
+        for cid, html in (e.get("answer_feedback") or {}).items():
+            if cid in ids and html:
+                w._feedback_cond(f"{ids[cid]}_fb", html,
+                                 varequal=("response1", str(ids[cid])))
+        cond, cv = w.score_cond(100)
+        _el(cv, "varequal", ids[correct], respident="response1")
+        w.correct_feedback(cond, fb)
+        w.incorrect_feedback(fb)
+        if (e.get("properties") or {}).get("vary_points_by_answer") or sd.get("values"):
+            w.notes.append("per-answer points dropped; only the correct answer scores")
+        return w
+
+    def _true_false(self, qi, e, points):
+        data, sd = e.get("interaction_data") or {}, e.get("scoring_data") or {}
+        fb = e.get("feedback") or {}
+        value = sd.get("value")
+        if isinstance(value, str):
+            value = value.strip().lower() == "true"
+        t, f = self.new_id(), self.new_id()
+        w = self._writer(qi, e, "true_false_question", points)
+        w.body(e.get("item_body"))
+        lid = _el(w.presentation, "response_lid", ident="response1", rcardinality="Single")
+        rc = _el(lid, "render_choice")
+        _mattext(_el(rc, "response_label", ident=t), data.get("true_choice") or "True", html=False)
+        _mattext(_el(rc, "response_label", ident=f), data.get("false_choice") or "False", html=False)
+        w.set_answer_ids([t, f])
+        w.resprocessing(fb.get("neutral"))
+        cond, cv = w.score_cond(100)
+        _el(cv, "varequal", t if value else f, respident="response1")
+        w.correct_feedback(cond, fb)
+        w.incorrect_feedback(fb)
+        return w
+
+    def _multi_answer(self, qi, e, points):
+        data, sd = e.get("interaction_data") or {}, e.get("scoring_data") or {}
+        fb = e.get("feedback") or {}
+        choices = sorted(data.get("choices") or [], key=lambda c: c.get("position") or 0)
+        ids = {c["id"]: self.new_id() for c in choices}
+        correct = set(sd.get("value") or [])
+        if not correct & set(ids):
+            raise Unsupported("no correct answer recorded")
+        w = self._writer(qi, e, "multiple_answers_question", points)
+        w.body(e.get("item_body"))
+        lid = _el(w.presentation, "response_lid", ident="response1", rcardinality="Multiple")
+        rc = _el(lid, "render_choice")
+        for c in choices:
+            _mattext(_el(rc, "response_label", ident=ids[c["id"]]), self._choice_body(c))
+        w.set_answer_ids(ids.values())
+        w.resprocessing(fb.get("neutral"))
+        cond, cv = w.score_cond(100)
+        both = _el(cv, "and")
+        for cid, aid in ids.items():
+            if cid in correct:
+                _el(both, "varequal", aid, respident="response1")
+            else:
+                _el(_el(both, "not"), "varequal", aid, respident="response1")
+        w.correct_feedback(cond, fb)
+        w.incorrect_feedback(fb)
+        if e.get("scoring_algorithm") == "AllOrNothing":
+            w.notes.append("was all-or-nothing; Classic Quizzes gives partial credit")
+        return w
+
+    def _essay(self, qi, e, points):
+        fb = e.get("feedback") or {}
+        w = self._writer(qi, e, "essay_question", points)
+        w.body(e.get("item_body"))
+        rs = _el(w.presentation, "response_str", ident="response1", rcardinality="Single")
+        _el(_el(rs, "render_fib"), "response_label", ident="answer1", rshuffle="No")
+        w.resprocessing(fb.get("neutral"))
+        notes = (e.get("scoring_data") or {}).get("value")
+        if notes:
+            w.notes.append("grading notes kept in the JSON only (Classic has no "
+                           "private grading-notes field)")
+        return w
+
+    def _file_upload(self, qi, e, points):
+        fb = e.get("feedback") or {}
+        w = self._writer(qi, e, "file_upload_question", points)
+        w.body(e.get("item_body"))
+        w.resprocessing(fb.get("neutral"))
+        props = e.get("properties") or {}
+        if props.get("restrict_types") or (e.get("interaction_data") or {}).get("restrict_count"):
+            w.notes.append("file type/count restrictions dropped")
+        return w
+
+    def _numeric(self, qi, e, points):
+        import math
+        fb = e.get("feedback") or {}
+        answers = (e.get("scoring_data") or {}).get("value") or []
+        if not answers:
+            raise Unsupported("no correct answer recorded")
+        w = self._writer(qi, e, "numerical_question", points)
+        w.body(e.get("item_body"))
+        rs = _el(w.presentation, "response_str", ident="response1", rcardinality="Single")
+        _el(_el(rs, "render_fib", fibtype="Decimal"), "response_label", ident="answer1")
+        w.resprocessing(fb.get("neutral"))
+
+        def exact(cv, value, lo, hi):
+            either = _el(cv, "or")
+            _el(either, "varequal", _num(value), respident="response1")
+            both = _el(either, "and")
+            _el(both, "vargte", _num(lo), respident="response1")
+            _el(both, "varlte", _num(hi), respident="response1")
+
+        written = 0
+        for a in answers:
+            kind = a.get("type")
+            try:
+                if kind == "exactResponse":
+                    v = float(a["value"])
+                    lo = hi = v
+                elif kind == "marginOfError":
+                    v, m = float(a["value"]), float(a.get("margin") or 0)
+                    if a.get("margin_type") == "percent":
+                        m = abs(v) * m / 100
+                        w.notes.append("percent margin converted to an absolute margin")
+                    lo, hi = v - m, v + m
+                elif kind == "withinARange":
+                    lo, hi = float(a["start"]), float(a["end"])
+                    v = None
+                elif kind == "preciseResponse":
+                    v, p = float(a["value"]), int(a.get("precision") or 0)
+                    if a.get("precision_type") == "significantDigits" and v:
+                        step = 10 ** (math.floor(math.log10(abs(v))) - p + 1)
+                    else:
+                        step = 10 ** (-p)
+                    lo, hi = v - step / 2, v + step / 2
+                    w.notes.append("precision answer converted to a range")
+                else:
+                    w.notes.append(f"answer type {kind!r} skipped")
+                    continue
+            except (KeyError, TypeError, ValueError):
+                w.notes.append(f"unreadable {kind} answer skipped")
+                continue
+            cond, cv = w.score_cond(100)
+            if v is None:
+                _el(cv, "vargte", _num(lo), respident="response1")
+                _el(cv, "varlte", _num(hi), respident="response1")
+            else:
+                exact(cv, v, lo, hi)
+            w.correct_feedback(cond, fb)
+            written += 1
+        if not written:
+            raise Unsupported("no answer could be converted")
+        w.incorrect_feedback(fb)
+        return w
+
+    def _matching(self, qi, e, points):
+        fb = e.get("feedback") or {}
+        data, sd = e.get("interaction_data") or {}, e.get("scoring_data") or {}
+        questions = data.get("questions") or []
+        pairs = sd.get("value") or {}
+        answers = list(dict.fromkeys(
+            list(data.get("answers") or [])
+            + list(((sd.get("edit_data") or {}).get("distractors")) or [])
+            + [str(v) for v in pairs.values()]))
+        if not questions or not pairs:
+            raise Unsupported("no matches recorded")
+        aid = {a: self.new_id() for a in answers}
+        w = self._writer(qi, e, "matching_question", points)
+        w.body(e.get("item_body"))
+        qids = {}
+        for q in questions:
+            qids[q["id"]] = self.new_id()
+            lid = _el(w.presentation, "response_lid", ident=f"response_{qids[q['id']]}")
+            _mattext(lid, strip_html(q.get("item_body")), html=False)
+            rc = _el(lid, "render_choice")
+            for a in answers:
+                _mattext(_el(rc, "response_label", ident=aid[a]), a, html=False)
+        w.set_answer_ids(qids.values())
+        w.resprocessing(fb.get("neutral"))
+        share = 100 / len(questions)
+        for q in questions:
+            correct = pairs.get(q["id"])
+            if correct is None:
+                continue
+            cond, cv = w.score_cond(share, action="Add", continue_=None)
+            _el(cv, "varequal", aid[str(correct)], respident=f"response_{qids[q['id']]}")
+        if e.get("scoring_algorithm") == "DeepEquals":
+            w.notes.append("was all-or-nothing; Classic Quizzes gives partial credit")
+        return w
+
+    def _blanks(self, qi, e, points, body: str, blank_ids: list[str],
+                blanks: dict, scoring: dict, bank_choices: list[dict]):
+        """Shared by both fill-in-the-blank flavours. body already holds
+        [blank1], [blank2]... in place of each blank."""
+        types = {(blanks.get(b) or {}).get("answer_type", "openEntry") for b in blank_ids}
+        dropdowns = types <= {"dropdown", "wordbank"}
+        w = self._writer(qi, e, "multiple_dropdowns_question" if dropdowns
+                         else "fill_in_multiple_blanks_question", points)
+        if not dropdowns and types & {"dropdown", "wordbank"}:
+            w.notes.append("mixes typed and drop-down blanks; drop-downs became "
+                           "typed answers")
+        w.body(body)
+        w.resprocessing((e.get("feedback") or {}).get("neutral"))
+        share = 100 / len(blank_ids)
+        all_ids = []
+        for n, bid in enumerate(blank_ids, start=1):
+            b = blanks.get(bid) or {}
+            s = scoring.get(bid) or {}
+            sdata = s.get("scoring_data") or {}
+            algo = s.get("scoring_algorithm") or ""
+            kind = b.get("answer_type", "openEntry")
+            options: list[str]
+            correct: list[str]
+            if kind == "dropdown":
+                opts = sorted(b.get("choices") or [], key=lambda c: c.get("position") or 0)
+                options = [c.get("item_body", "") for c in opts]
+                hit = [c.get("item_body", "") for c in opts if c.get("id") == sdata.get("value")]
+                correct = hit or [sdata.get("blank_text") or ""]
+            elif kind == "wordbank":
+                options = [c.get("item_body", "") for c in bank_choices]
+                hit = [c.get("item_body", "") for c in bank_choices
+                       if c.get("id") == sdata.get("choice_id")]
+                correct = hit or [str(sdata.get("value") or sdata.get("blank_text") or "")]
+            else:
+                value = sdata.get("value")
+                correct = [str(v) for v in value] if isinstance(value, list) else [str(value or "")]
+                if algo == "TextRegex":
+                    correct = [sdata.get("blank_text") or ""]
+                    w.notes.append(f"blank {n}: regex answer replaced by its example answer")
+                elif algo in ("TextCloseEnough", "TextContainsAnswer"):
+                    w.notes.append(f"blank {n}: {algo} matching became exact match")
+                options = correct
+            if not dropdowns:
+                options = correct           # typed blanks list only right answers
+            correct = [c for c in correct if c]
+            if not correct:
+                raise Unsupported(f"blank {n} has no correct answer recorded")
+            label_ids = {opt: self.new_id() for opt in dict.fromkeys(options + correct)}
+            all_ids += label_ids.values()
+            lid = _el(w.presentation, "response_lid", ident=f"response_blank{n}")
+            _mattext(lid, f"blank{n}", html=False)
+            rc = _el(lid, "render_choice")
+            for opt, i in label_ids.items():
+                _mattext(_el(rc, "response_label", ident=i), opt, html=False)
+            for c in correct:
+                cond, cv = w.score_cond(share, action="Add", continue_=None)
+                _el(cv, "varequal", label_ids[c], respident=f"response_blank{n}")
+        w.set_answer_ids(all_ids)
+        return w
+
+    def _rich_fill_blank(self, qi, e, points):
+        data, sd = e.get("interaction_data") or {}, e.get("scoring_data") or {}
+        blanks = {b["id"]: b for b in data.get("blanks") or []}
+        order = [b["id"] for b in data.get("blanks") or []]
+        scoring = {s["id"]: s for s in sd.get("value") or [] if "id" in s}
+        working = sd.get("working_item_body") or ""
+        spans = re.findall(r"`([^`]*)`", working)
+        if not order or len(spans) != len(order):
+            raise Unsupported("could not locate the blanks in the question text")
+        counter = iter(range(1, len(order) + 1))
+        body = re.sub(r"`[^`]*`", lambda _m: f"[blank{next(counter)}]", working)
+        w = self._blanks(qi, e, points, body, order, blanks, scoring,
+                         data.get("word_bank_choices") or [])
+        for n, (span, bid) in enumerate(zip(spans, order), start=1):
+            text = ((scoring.get(bid) or {}).get("scoring_data") or {}).get("blank_text")
+            if text is not None and strip_html(text) != strip_html(span):
+                w.notes.append(f"blank {n}: text order did not match answer order; check it")
+        return w
+
+    def _fill_blank(self, qi, e, points):
+        data, sd = e.get("interaction_data") or {}, e.get("scoring_data") or {}
+        blanks = {b["id"]: b for b in data.get("blanks") or []}
+        scoring = {s["id"]: s for s in sd.get("value") or [] if "id" in s}
+        parts, order = [], []
+        for s in sorted(data.get("stem_items") or [], key=lambda s: s.get("position") or 0):
+            if s.get("type") == "blank":
+                order.append(s.get("blank_id"))
+                parts.append(f"[blank{len(order)}]")
+            else:
+                parts.append(_escape(s.get("value") or ""))
+        if not order:
+            raise Unsupported("no blanks found")
+        body = (data.get("prompt") or "") + f"<p>{''.join(parts)}</p>"
+        return self._blanks(qi, e, points, body, order, blanks, scoring, [])
+
+    # ---- package -----------------------------------------------------------
+    def assessment_xml(self) -> bytes:
+        root = _el(None, "questestinterop", xmlns=QTI_NS)
+        root.set("xmlns:xsi", XSI_NS)
+        root.set("xsi:schemaLocation",
+                 f"{QTI_NS} http://www.imsglobal.org/xsd/ims_qtiasiv1p2p1.xsd")
+        assessment = _el(root, "assessment", ident=self.ident,
+                         title=self.quiz.get("title") or "Quiz")
+        meta = _el(assessment, "qtimetadata")
+        f = _el(meta, "qtimetadatafield")
+        _el(f, "fieldlabel", "cc_maxattempts")
+        _el(f, "fieldentry", self._allowed_attempts())
+        section = _el(assessment, "section", ident="root_section")
+        section.extend(self.items)
+        return _xml_bytes(root)
+
+    def _allowed_attempts(self) -> str:
+        ma = (self.quiz.get("quiz_settings") or {}).get("multiple_attempts") or {}
+        if not ma.get("multiple_attempts_enabled"):
+            return "1"
+        return str(ma.get("max_attempts") or 1) if ma.get("attempt_limit") else "-1"
+
+    def meta_xml(self) -> bytes:
+        q, s = self.quiz, self.quiz.get("quiz_settings") or {}
+        ma = s.get("multiple_attempts") or {}
+        root = _el(None, "quiz", identifier=self.ident, xmlns=CANVAS_META_NS)
+        _el(root, "title", q.get("title") or "Quiz")
+        _el(root, "description", q.get("instructions") or "")
+        _el(root, "shuffle_answers", str(bool(s.get("shuffle_answers"))).lower())
+        _el(root, "scoring_policy", {"latest": "keep_latest", "average": "keep_average"}
+            .get(ma.get("score_to_keep"), "keep_highest"))
+        _el(root, "quiz_type", "assignment")
+        if q.get("points_possible") is not None:
+            _el(root, "points_possible", _num(q["points_possible"]))
+        _el(root, "allowed_attempts", self._allowed_attempts())
+        if s.get("has_time_limit") and s.get("session_time_limit_in_seconds"):
+            _el(root, "time_limit", max(1, int(s["session_time_limit_in_seconds"]) // 60))
+        _el(root, "one_question_at_a_time",
+            str(s.get("one_at_a_time_type") == "question").lower())
+        _el(root, "cant_go_back", str(s.get("one_at_a_time_type") == "question"
+                                      and not s.get("allow_backtracking")).lower())
+        return _xml_bytes(root)
+
+    def manifest_xml(self) -> bytes:
+        root = _el(None, "manifest", identifier=f"{self.ident}_manifest", xmlns=CC_NS)
+        md = _el(root, "metadata")
+        _el(md, "schema", "IMS Content")
+        _el(md, "schemaversion", "1.1.3")
+        _el(root, "organizations")
+        res = _el(root, "resources")
+        main = _el(res, "resource", identifier=self.ident, type="imsqti_xmlv1p2")
+        _el(main, "file", href=f"{self.ident}/{self.ident}.xml")
+        _el(main, "dependency", identifierref=f"{self.ident}_meta")
+        meta = _el(res, "resource", identifier=f"{self.ident}_meta",
+                   type="associatedcontent/imscc_xmlv1p1/learning-application-resource",
+                   href=f"{self.ident}/assessment_meta.xml")
+        _el(meta, "file", href=f"{self.ident}/assessment_meta.xml")
+        return _xml_bytes(root)
+
+    def write_zip(self, path: Path) -> None:
+        tmp = path.with_name(path.name + ".part")
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("imsmanifest.xml", self.manifest_xml())
+            zf.writestr(f"{self.ident}/{self.ident}.xml", self.assessment_xml())
+            zf.writestr(f"{self.ident}/assessment_meta.xml", self.meta_xml())
+        tmp.replace(path)
+
+
+def _escape(text: str) -> str:
+    import html as _html
+    return _html.escape(text or "", quote=False)
+
+
+def verify_qti_zip(path: Path, expected_items: int) -> None:
+    """Reopen the package and check every XML part parses and no item was lost."""
+    import xml.etree.ElementTree as ET
+    with zipfile.ZipFile(path) as zf:
+        bad = zf.testzip()
+        if bad:
+            raise IOError(f"{path.name}: corrupt member {bad}")
+        names = zf.namelist()
+        if "imsmanifest.xml" not in names:
+            raise IOError(f"{path.name}: no imsmanifest.xml")
+        found = 0
+        for name in names:
+            root = ET.fromstring(zf.read(name))
+            found += sum(1 for el in root.iter() if el.tag.endswith("item")
+                         and el.tag.rsplit("}", 1)[-1] == "item")
+    if found != expected_items:
+        raise IOError(f"{path.name}: {found} item(s) written, expected {expected_items}")
+
+
+def quiz_kind(assignment: dict) -> str | None:
+    """'new' for a New Quiz, 'classic' for a Classic Quiz, None otherwise."""
+    if assignment.get("is_quiz_lti_assignment"):
+        return "new"
+    if assignment.get("quiz_id") or "online_quiz" in (assignment.get("submission_types") or []):
+        return "classic"
+    tool = (assignment.get("external_tool_tag_attributes") or {}).get("url") or ""
+    if "external_tool" in (assignment.get("submission_types") or []) and "quiz-lti" in tool:
+        return "new"
+    return None
+
+
+def assignment_folder(out_root: Path, assignment: dict) -> Path:
+    """The assignment's folder in the --out tree.
+
+    Reuses an existing NN_<name> folder (from a download run) if there is
+    exactly one; otherwise uses 01_<name>, the name a download run with this
+    single --assignment would create.
+    """
+    name = slug(assignment.get("name") or str(assignment.get("id")))
+    pattern = re.compile(r"^\d{2,}_" + re.escape(name) + r"$")
+    if out_root.is_dir():
+        hits = [d for d in out_root.iterdir() if d.is_dir() and pattern.match(d.name)]
+        if len(hits) == 1:
+            return hits[0]
+        if len(hits) > 1:
+            print(f"  note: several folders match {name}; using {hits[0].name}",
+                  file=sys.stderr)
+            return sorted(hits)[0]
+    return out_root / f"01_{name}"
+
+
+@dataclass
+class QuizExportPlan:
+    """Where a quiz export goes and whose answers it keeps."""
+    dirs: list[Path]                        # every output folder
+    selected: set[int] | None = None        # students to keep; None = everyone
+    dir_of: dict[int, Path] | None = None   # with --by-section: student -> folder
+    roster: Roster | None = None
+
+
+def quiz_export_plan(canvas: Canvas, args, assignment: dict) -> QuizExportPlan | None:
+    """Apply --section/--student/--by-section to a quiz export.
+
+    The filters pick whose answers are kept: selected students who are
+    assigned the quiz. With --by-section each of their sections gets a folder
+    holding that section's answers plus a copy of the quiz content. Returns
+    None when no selected student is assigned the quiz.
+    """
+    adir = assignment_folder(Path(args.out), assignment)
+    if not (args.section or args.student or args.by_section):
+        return QuizExportPlan([adir])
+    roster = Roster(canvas.sections(args.course),
+                    canvas.student_enrollments(args.course))
+    student_ids, section_ids = select_students(roster, args)
+    assigned = assigned_students(canvas, args.course, [assignment["id"]])
+    chosen = assigned if student_ids is None else student_ids & assigned
+    if student_ids is not None:
+        print(f"{len(chosen)} of {len(student_ids)} selected student(s) are "
+              "assigned this quiz.")
+    if not chosen:
+        return None
+    selected = chosen if student_ids is not None else None
+    if not args.by_section:
+        return QuizExportPlan([adir], selected, None, roster)
+    dir_of = {u: adir / slug((roster.primary_section(u, section_ids) or {}).get("name")
+                             or "no-section", 40) for u in chosen}
+    dirs = sorted(set(dir_of.values()), key=lambda d: d.name.casefold())
+    return QuizExportPlan(dirs, selected, dir_of, roster)
+
+
+# ---- student answers (New Quizzes student analysis report) -------------------
+ANSWERS_STATE_KEY = "new_quiz_report:student_analysis:csv"
+REPORT_REUSE_SECONDS = 30 * 60   # a finished report this recent may be reused
+
+
+def find_student_column(header: list[str], rows: list[list[str]],
+                        roster: Roster) -> tuple[int, str, dict] | None:
+    """Which report column identifies the student, judged by its values.
+
+    Instructure does not document the report's columns, so this does not
+    rely on header names: it picks the column whose values match the course
+    roster best -- Canvas user IDs first, then SIS IDs, logins, and finally
+    names. Returns (column index, what it matched, value -> user id).
+    """
+    users = roster.users.values()
+    by_name: dict[str, set[int]] = {}
+    for u in users:
+        for n in (u.get("name"), u.get("sortable_name")):
+            if _letters(n):
+                by_name.setdefault(_letters(n), set()).add(u["id"])
+    lookups = [
+        ("Canvas user ID", {str(u["id"]): u["id"] for u in users}, str.strip),
+        ("SIS user ID", {str(u["sis_user_id"]): u["id"] for u in users
+                         if u.get("sis_user_id")}, str.strip),
+        ("login", {str(u["login_id"]).casefold(): u["id"] for u in users
+                   if u.get("login_id")}, lambda v: v.strip().casefold()),
+        ("name", {k: next(iter(v)) for k, v in by_name.items() if len(v) == 1},
+         _letters),
+    ]
+    hinted = ("id", "user", "student", "name", "login", "sis")
+    for kind, mapping, norm in lookups:
+        best = None
+        for c, head in enumerate(header):
+            vals = [r[c] for r in rows if c < len(r) and r[c].strip()]
+            if not vals:
+                continue
+            rate = sum(norm(v) in mapping for v in vals) / len(vals)
+            score = (rate, any(h in head.casefold() for h in hinted))
+            if rate >= 0.6 and (best is None or score > best[0]):
+                best = (score, c)
+        if best:
+            c = best[1]
+            return c, kind, {v: mapping[norm(v)] for v in
+                             {r[c] for r in rows if c < len(r)} if norm(v) in mapping}
+    return None
+
+
+def write_answers(raw: Path, plan: QuizExportPlan, name: str) -> tuple[list[Path], list[str]]:
+    """Put the downloaded report into each output folder.
+
+    No filters: the report is copied unchanged. With --section/--student or
+    --by-section: only the selected students' rows are kept, split by section
+    folder, under the report's own header. Every output folder gets a file,
+    even if that section has no attempts yet.
+    """
+    if plan.selected is None and plan.dir_of is None:
+        dest = plan.dirs[0] / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(raw, dest)
+        return [dest], []
+
+    with open(raw, newline="", encoding="utf-8-sig") as fh:
+        table = list(csv.reader(fh))
+    if not table:
+        raise ValueError("the student analysis report is empty")
+    header, body = table[0], table[1:]
+    notes: list[str] = []
+    out: dict[Path, list[list[str]]] = {d: [] for d in plan.dirs}
+    if body:
+        found = find_student_column(header, body, plan.roster)
+        if found is None:
+            raise ValueError(
+                "could not tell which report column identifies the student, so "
+                "the answers can't be filtered by --section/--student/--by-section "
+                "(nothing was written). Report columns: " + ", ".join(header))
+        col, kind, uid_of = found
+        print(f"  students identified by column '{header[col]}' ({kind})")
+        if kind == "name":
+            notes.append("students in the answers report were matched by name; "
+                         "check the split if two students share a name")
+        dropped = off_roster = 0
+        for row in body:
+            uid = uid_of.get(row[col]) if col < len(row) else None
+            if uid is None:
+                off_roster += 1
+                continue
+            if plan.selected is not None and uid not in plan.selected:
+                dropped += 1
+                continue
+            dest = plan.dir_of.get(uid) if plan.dir_of is not None else plan.dirs[0]
+            if dest is None:
+                dropped += 1
+                continue
+            out[dest].append(row)
+        if off_roster:
+            notes.append(f"{off_roster} answer row(s) belong to people not on the "
+                         "current student roster (e.g. Test Student, dropped "
+                         "students) and were left out")
+        if dropped:
+            print(f"  {dropped} row(s) for students outside the selection left out")
+    written = []
+    for d, rows in out.items():
+        d.mkdir(parents=True, exist_ok=True)
+        dest = d / name
+        tmp = dest.with_name(dest.name + ".part")
+        with open(tmp, "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.writer(fh)
+            w.writerow(header)
+            w.writerows(rows)
+        tmp.replace(dest)
+        print(f"  {dest}: {len(rows)} row(s)")
+        written.append(dest)
+    return written, notes
+
+
+def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
+                    state_path: Path, dest: Path, timeout: float) -> Path:
+    """Generate the student analysis report, wait for it, download it to dest.
+
+    The Progress ID is saved to state_path as soon as Canvas returns it; a
+    rerun resumes that job instead of starting another. Canvas answers 409
+    while a report of this type is already being generated (by this tool or
+    in the browser); that is waited out with the same capped, growing
+    interval as polling, then requested again. A POST that fails any other
+    way is never repeated.
+    """
+    state = _load_state(state_path)
+    progress = None
+    saved = state.get(ANSWERS_STATE_KEY)
+    if saved and saved.get("course_id") == course_id \
+            and saved.get("assignment_id") == assignment_id:
+        try:
+            progress = canvas.progress(saved["progress_id"])
+        except requests.HTTPError:
+            progress = None
+        if progress:
+            st = progress.get("workflow_state")
+            age = time.time() - (parse_ts(progress.get("updated_at")) or
+                                 datetime.fromtimestamp(0).astimezone()).timestamp()
+            if st == "failed" or (st == "completed" and age > REPORT_REUSE_SECONDS):
+                progress = None
+        if progress:
+            print(f"  resuming report job {progress['id']} "
+                  f"({progress.get('workflow_state')})")
+
+    deadline = time.monotonic() + timeout
+    if progress is None:
+        wait, told = POLL_START, False
+        while True:
+            try:
+                progress = canvas.create_quiz_report(course_id, assignment_id)
+                if progress.get("id", None):
+                    break
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                remaining = deadline - time.monotonic()
+                if status != 409:
+                    raise RuntimeError(f"Canvas refused the student analysis report "
+                                       f"({exc})") from exc
+                if remaining <= 0:
+                    raise TimeoutError("another student analysis report for this "
+                                       "quiz was still being generated after "
+                                       f"{timeout:.0f}s; try again later") from exc
+                if not told:
+                    print("  a student analysis report is already being generated; "
+                          "waiting for it to finish")
+                    told = True
+                print(f"retrying in {min(wait, remaining)}")
+                canvas.sleep(min(wait, remaining))
+                wait = min(POLL_CAP, wait * POLL_FACTOR)
+        state[ANSWERS_STATE_KEY] = {"course_id": course_id,
+                                    "assignment_id": assignment_id,
+                                    "progress_id": progress["id"]}
+        _save_state(state_path, state)
+        print(f"  started report job {progress['id']}")
+
+    last = [progress.get("completion")]
+
+    def report(p):
+        if p.get("completion") != last[0] and p.get("completion") is not None:
+            last[0] = p.get("completion")
+            print(f"  report {p['id']}: {p.get('workflow_state')} {last[0]}%")
+
+    progress, done = poll_until(
+        lambda: canvas.progress(progress["id"]),
+        lambda p: p.get("workflow_state") in ("completed", "failed"),
+        max(0.0, deadline - time.monotonic()), sleep=canvas.sleep, on_poll=report)
+    if not done:
+        raise TimeoutError(f"report job {progress['id']} is still "
+                           f"{progress.get('workflow_state')} after {timeout:.0f}s. "
+                           "Rerun the same command to pick it up; no new job "
+                           "will be started.")
+    if progress.get("workflow_state") == "failed":
+        state.pop(ANSWERS_STATE_KEY, None)
+        _save_state(state_path, state)
+        raise RuntimeError(f"Canvas reports the student analysis report failed"
+                           + (f": {progress['message']}" if progress.get("message") else ""))
+    results = progress.get("results")
+    url = results.get("url") if isinstance(results, dict) else None
+    if not url:
+        raise RuntimeError("the report finished but Canvas gave no download link")
+    dest.unlink(missing_ok=True)
+    canvas.fetch_file(url, dest, auth=True)
+    state.pop(ANSWERS_STATE_KEY, None)      # kept until now so a failed
+    _save_state(state_path, state)          # download can resume the job
+    return dest
+
+
+# ---- content export jobs ------------------------------------------------------
+def _load_state(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_state(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _export_expired(export: dict) -> bool:
+    from datetime import timezone, timedelta
+    created = parse_ts(export.get("created_at"))
+    return bool(created and datetime.now(timezone.utc) - created
+                > timedelta(days=EXPORT_MAX_AGE_DAYS))
+
+
+def _find_orphan_export(canvas: Canvas, course_id: int, export_type: str,
+                        started) -> dict | None:
+    """After a POST that errored: the one job it may have started anyway."""
+    from datetime import timedelta
+    try:
+        me = canvas.self_user().get("id")
+        recent = canvas.content_exports(course_id)
+    except requests.RequestException:
+        return None
+    since = started - timedelta(seconds=ORPHAN_WINDOW_SECONDS)
+    hits = [e for e in recent
+            if e.get("export_type") == export_type and e.get("user_id") == me
+            and e.get("workflow_state") != "failed"
+            and (parse_ts(e.get("created_at")) or since) >= since]
+    return hits[0] if len(hits) == 1 else None
+
+
+def run_content_export(canvas: Canvas, course_id: int, export_type: str,
+                       select: dict[str, list], state_path: Path,
+                       dest: Path, timeout: float) -> Path:
+    """Start (or resume) a content export, wait for it, download it to dest.
+
+    Duplicate protection: the job ID is saved to state_path the moment Canvas
+    returns it. A rerun after an interruption or timeout resumes that job
+    instead of starting another; the entry is cleared once the file is
+    downloaded. A POST that errors is never retried -- Canvas may have
+    started the job anyway -- so the recent export list is checked for it.
+    """
+    from datetime import timezone
+    key = f"{export_type}:" + json.dumps(select, sort_keys=True)
+    state = _load_state(state_path)
+    export = None
+    saved = state.get(key)
+    if saved and saved.get("course_id") == course_id:
+        try:
+            export = canvas.content_export(course_id, saved["export_id"])
+        except requests.HTTPError:
+            export = None
+        if export and (export.get("workflow_state") == "failed" or _export_expired(export)):
+            export = None
+        if export:
+            print(f"  resuming export {export['id']} started "
+                  f"{fmt_ts(export.get('created_at'))} UTC (state "
+                  f"{export.get('workflow_state')})")
+
+    if export is None:
+        started = datetime.now(timezone.utc)
+        try:
+            export = canvas.create_content_export(course_id, export_type, select)
+        except requests.RequestException as exc:
+            export = _find_orphan_export(canvas, course_id, export_type, started)
+            if export is None:
+                raise RuntimeError(
+                    f"starting the {export_type} export failed ({exc}). Canvas may "
+                    "still have started it: check Settings > Export Course Content "
+                    "before rerunning.") from exc
+            print(f"  the request errored, but Canvas started export {export['id']}; "
+                  "using it")
+        else:
+            print(f"  started export {export['id']}")
+        state[key] = {"course_id": course_id, "export_id": export["id"],
+                      "created_at": export.get("created_at")}
+        _save_state(state_path, state)
+
+    last_state = [export.get("workflow_state")]
+
+    def report(e):
+        if e.get("workflow_state") != last_state[0]:
+            last_state[0] = e.get("workflow_state")
+            print(f"  export {e['id']}: {last_state[0]}")
+
+    export, done = poll_until(
+        lambda: canvas.content_export(course_id, export["id"]),
+        lambda e: e.get("workflow_state") in EXPORT_FINAL_STATES,
+        timeout, sleep=canvas.sleep, on_poll=report)
+    if not done:
+        raise TimeoutError(
+            f"export {export['id']} is still {export.get('workflow_state')} after "
+            f"{timeout:.0f}s. Rerun the same command to pick it up; no new job "
+            "will be started.")
+    if export.get("workflow_state") == "failed":
+        state.pop(key, None)
+        _save_state(state_path, state)
+        raise RuntimeError(f"Canvas reports export {export['id']} failed")
+    attachment = export.get("attachment") or {}
+    if not attachment.get("url"):
+        state.pop(key, None)
+        _save_state(state_path, state)
+        raise RuntimeError(f"export {export['id']} finished but has no download link")
+
+    dest.unlink(missing_ok=True)            # never treat an old file as cached
+    canvas.fetch_file(attachment["url"], dest, attachment.get("size"), auth=True)
+    if not zipfile.is_zipfile(dest):
+        raise IOError(f"export {export['id']} download is not a zip package")
+    state.pop(key, None)
+    _save_state(state_path, state)
+    return dest
+
+
+def package_contains_quiz(path: Path, quiz: dict, items: list[dict]) -> tuple[bool, str]:
+    """Does a downloaded course export actually hold this quiz's questions?"""
+    import html as _html
+    title = (quiz.get("title") or "").strip()
+    probes = [t for t in (
+        strip_html((i.get("entry") or {}).get("item_body"))[:40]
+        for i in items if i.get("entry_type") == "Item") if len(t) >= 12][:5]
+    qti_files, title_hit, text_hit = [], False, False
+    with zipfile.ZipFile(path) as zf:
+        for info in zf.infolist():
+            if info.is_dir() or info.file_size > 50 * 1024 * 1024:
+                continue
+            if not info.filename.lower().endswith((".xml", ".qti")):
+                continue
+            raw = zf.read(info).decode("utf-8", "replace")
+            if "questestinterop" in raw or "<assessmentItem" in raw or "<assessmentTest" in raw:
+                qti_files.append(info.filename)
+            plain = " ".join(_html.unescape(_html.unescape(raw)).split())
+            if title and title in plain:
+                title_hit = True
+            if any(p in plain for p in probes):
+                text_hit = True
+    if not qti_files:
+        return False, "the course export has no quiz (QTI) files"
+    if not (title_hit or text_hit):
+        return False, "the course export's quiz files don't include this quiz"
+    return True, f"{len(qti_files)} quiz file(s) inside"
+
+
+# ---- File Upload answers (best effort, from the student analysis report) -----
+# New Quizzes has no API for the files students upload to File Upload
+# questions, and they are not attachments on the Canvas submission. The
+# student analysis report is the only place they may surface, as links in
+# the response cells; Instructure does not document that, so this looks for
+# file links by value and reports what it found either way.
+URL_RE = re.compile(r"https?://[^\s\"'<>\[\](){},;|]+")
+CANVAS_FILE_ID_RE = re.compile(r"/files/(\d+)")
+UPLOAD_HOST_HINTS = ("inst-fs", "inscloudgate", "instructure", "quiz-lti",
+                     "amazonaws.com")
+
+
+def _is_file_link(url: str, canvas_host: str) -> bool:
+    host = requests.utils.urlparse(url).netloc.lower()
+    return (host == canvas_host or any(h in host for h in UPLOAD_HOST_HINTS)
+            or bool(CANVAS_FILE_ID_RE.search(url)))
+
+
+def download_report_uploads(canvas: Canvas, raw: Path, plan: QuizExportPlan,
+                            course_id: int, stem: str) -> tuple[int, list[str]]:
+    """Download every file linked from the answers report into
+    <folder>/<Quiz>_uploads/<Student>_<id>/. Returns (files saved, notes)."""
+    with open(raw, newline="", encoding="utf-8-sig") as fh:
+        table = list(csv.reader(fh))
+    if len(table) < 2:
+        return 0, ["file uploads: the student analysis report has no rows"]
+    header, body = table[0], table[1:]
+    canvas_host = requests.utils.urlparse(canvas.base).netloc.lower()
+
+    roster = plan.roster or Roster(canvas.sections(course_id),
+                                   canvas.student_enrollments(course_id))
+    found = find_student_column(header, body, roster)
+    col_student, _, uid_of = found if found else (None, None, {})
+
+    links = []   # (row, column, url)
+    for r, row in enumerate(body):
+        for c, cell in enumerate(row):
+            if c == col_student:
+                continue
+            for url in URL_RE.findall(cell or ""):
+                url = url.rstrip(".")
+                if _is_file_link(url, canvas_host):
+                    links.append((r, c, url))
+    if not links:
+        upload_cells = sum(1 for row in body for cell in row
+                           if "file" in (cell or "").casefold()
+                           and "upload" in (cell or "").casefold())
+        return 0, ["file uploads: the student analysis report contains no file "
+                   "links, so the uploads can't be fetched this way"
+                   + (f" ({upload_cells} cell(s) mention File Upload, so the "
+                      "report lists those answers without a link)"
+                      if upload_cells else "")
+                   + ". Report columns: " + ", ".join(header)]
+
+    print(f"  {len(links)} file link(s) found in the report")
+    saved, notes, log = 0, [], []
+    seen: set[tuple[int | None, str]] = set()
+    for r, c, url in links:
+        row = body[r]
+        uid = uid_of.get(row[col_student]) if col_student is not None else None
+        if plan.selected is not None and uid not in plan.selected:
+            continue
+        key = (uid, url)
+        if key in seen:
+            continue
+        seen.add(key)
+        if uid is not None:
+            u = roster.users.get(uid) or {}
+            who = f"{slug(u.get('sortable_name') or u.get('name') or 'student', 45)}_{uid}"
+            base = (plan.dir_of or {}).get(uid, plan.dirs[0])
+        else:
+            who, base = "unmatched", plan.dirs[0]
+        folder = base / f"{stem}_uploads" / who
+        question = slug(header[c] if c < len(header) else f"col{c}", 30)
+        status, fname = "", ""
+        try:
+            m = CANVAS_FILE_ID_RE.search(url)
+            host = requests.utils.urlparse(url).netloc.lower()
+            if m and host == canvas_host:
+                meta = canvas.file(m.group(1))
+                fname = safe_filename(meta.get("display_name") or meta.get("filename")
+                                      or m.group(1))
+                target = folder / f"{question}__{fname}"
+                fresh = canvas.fetch_file(meta["url"], target, meta.get("size"))
+            else:
+                fname = safe_filename(requests.utils.unquote(
+                    requests.utils.urlparse(url).path.rsplit("/", 1)[-1]) or "file")
+                target = folder / f"{question}__{fname}"
+                fresh = canvas.fetch_file(url, target, auth=(host == canvas_host))
+            saved += 1
+            status = "downloaded" if fresh else "cached"
+            print(f"    {status} {target.relative_to(base)}")
+        except (requests.RequestException, OSError, KeyError) as exc:
+            status = f"failed: {exc}"
+            print(f"    ! {who}: {url}: {exc}")
+        log.append({"student_folder": who, "user_id": uid or "",
+                    "report_column": header[c] if c < len(header) else c,
+                    "url": url, "file": fname, "status": status})
+
+    if col_student is None:
+        notes.append("file uploads: could not tell which report column is the "
+                     "student, so files were saved under 'unmatched'")
+    failed = sum(1 for x in log if x["status"].startswith("failed"))
+    if failed:
+        notes.append(f"file uploads: {failed} link(s) could not be downloaded "
+                     "(see the uploads log)")
+    for d in plan.dirs:
+        rows = [x for x in log if (plan.dir_of or {}).get(x["user_id"] or None,
+                                                          plan.dirs[0]) == d]
+        if not rows:
+            continue
+        p = d / f"{stem}_uploads" / "uploads_log.csv"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(rows)
+    return saved, notes
+
+
+# ---- File Upload answers via a real browser (Playwright) ----------------------
+# Found by recording SpeedGrader (HAR): for a New Quiz, SpeedGrader embeds
+# the New Quizzes grading view, which calls the quiz API at
+#   https://<school>.quiz-api-<region>-prod.instructure.com
+#     /api/quiz_sessions/<quiz_session_id>/results/<result_id>/session_item_results
+# For a File Upload item, that JSON carries
+#   scored_data.value = [{"name": ..., "size": ..., "url": <file in S3>}, ...]
+# The Canvas submission links to the same quiz_session_id (its LTI launch
+# URL), so every file is matched to its student exactly. The quiz API only
+# accepts the short-lived token New Quizzes gets inside the browser, which is
+# why a browser is needed: this mode signs in once with a saved profile,
+# opens each student in SpeedGrader and reads that response as it loads.
+QUIZ_RESULTS_RE = re.compile(r"/api/quiz_sessions/(\d+)/results/\d+/session_item_results")
+QUIZ_SESSION_RE = re.compile(r"/api/quiz_sessions/(\d+)(?:\?|$)")
+LAUNCH_SESSION_RE = re.compile(r"quiz_session_id(?:=|%3D)(\d+)")
+
+
+def submission_quiz_session(sub: dict) -> str | None:
+    """The New Quizzes quiz_session_id in a submission's LTI launch URL."""
+    m = LAUNCH_SESSION_RE.search(json.dumps(sub))
+    return m.group(1) if m else None
+
+
+def uploads_in_results(results) -> list[dict]:
+    """File Upload answers in a session_item_results response."""
+    out = []
+    for r in results if isinstance(results, list) else []:
+        value = ((r or {}).get("scored_data") or {}).get("value")
+        if not isinstance(value, list):
+            continue
+        for f in value:
+            if isinstance(f, dict) and f.get("url"):
+                out.append({"position": r.get("position"), "item_id": r.get("item_id"),
+                            "name": f.get("name") or "file", "size": f.get("size"),
+                            "url": f["url"]})
+    return out
+
+
+def browser_quiz_uploads(canvas: Canvas, args) -> int:
+    """--browser-uploads: download a New Quiz's File Upload answers through
+    SpeedGrader in a Playwright-driven browser."""
+    if not args.assignment or len(args.assignment) != 1:
+        raise SystemExit("--browser-uploads needs exactly one --assignment "
+                         "(the quiz's assignment ID).")
+    cid, aid = args.course, args.assignment[0]
+    try:
+        assignment = canvas.assignment(cid, aid)
+    except requests.HTTPError as exc:
+        raise SystemExit(f"Assignment {aid} not found in course {cid} ({exc}).")
+    if quiz_kind(assignment) != "new":
+        raise SystemExit(f"Assignment {aid} ({assignment.get('name')}) is not a "
+                         "New Quiz; use a normal download run instead.")
+    print(f"[{aid}] {assignment.get('name')}  (New Quiz)")
+
+    plan = quiz_export_plan(canvas, args, assignment)
+    if plan is None:
+        print("None of the selected students are assigned this quiz.", file=sys.stderr)
+        return 1
+    roster = plan.roster or Roster(canvas.sections(cid), canvas.student_enrollments(cid))
+    stem = slug(assignment.get("name") or str(aid), 50)
+
+    todo = []
+    for sub in canvas.submissions(cid, aid):
+        uid = sub.get("user_id")
+        if sub.get("workflow_state") == "unsubmitted" or not sub.get("submitted_at"):
+            continue
+        if plan.selected is not None and uid not in plan.selected:
+            continue
+        if uid not in roster.users:          # Test Student, dropped students
+            continue
+        todo.append((uid, sub, submission_quiz_session(sub)))
+    todo.sort(key=lambda t: (roster.users[t[0]].get("sortable_name") or "").casefold())
+    if args.limit:
+        todo = todo[:args.limit]
+    print(f"{len(todo)} submitted student(s) to visit.")
+    if not todo:
+        return 1
+
+    def student_folder(uid: int) -> tuple[Path, Path, str]:
+        u = roster.users.get(uid) or {}
+        who = f"{slug(u.get('sortable_name') or u.get('name') or 'student', 45)}_{uid}"
+        base = (plan.dir_of or {}).get(uid, plan.dirs[0])
+        return base, base / f"{stem}_uploads" / who, who
+
+    if args.dry_run:
+        for uid, _, sess in todo:
+            _, folder, _ = student_folder(uid)
+            print(f"  {folder}   quiz session {sess or '? (matched by page load)'}")
+        print("Dry run: no browser opened, nothing downloaded.")
+        return 0
+
+    try:
+        from playwright.sync_api import sync_playwright, Error as PWError
+    except ImportError:
+        raise SystemExit("Playwright is not installed: pip install playwright "
+                         "(then 'playwright install chromium' if you use "
+                         "--browser-channel chromium).")
+
+    log: list[dict] = []
+    saved = failed = no_files = 0
+    profile = Path(args.browser_profile).expanduser().resolve()
+    channel = None if args.browser_channel == "chromium" else args.browser_channel
+
+    with sync_playwright() as pw:
+        attached = bool(args.connect_browser)
+        if attached:
+            # A browser the user started with --remote-debugging-port: sign-in
+            # (SSO, CAC certificate prompt, 2FA) behaves exactly as normal,
+            # because Playwright did not launch it.
+            print(f"Connecting to your browser at {args.connect_browser} ...")
+            try:
+                browser = pw.chromium.connect_over_cdp(args.connect_browser)
+            except PWError as exc:
+                raise SystemExit(
+                    f"Could not connect to {args.connect_browser}: {exc}\n"
+                    "Start the browser first, e.g. (Windows, Chrome):\n"
+                    '  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" '
+                    "--remote-debugging-port=9222 --user-data-dir=C:\\canvas-browser-profile\n"
+                    "and keep it open.")
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        else:
+            print(f"Starting {args.browser_channel} with profile {profile} ...")
+            ctx = pw.chromium.launch_persistent_context(
+                str(profile), channel=channel, headless=args.headless,
+                accept_downloads=True, viewport={"width": 1400, "height": 900})
+        captured: dict[str, dict] = {}
+
+        def on_response(resp):
+            m = QUIZ_RESULTS_RE.search(resp.url)
+            if m and resp.status == 200:
+                try:
+                    captured.setdefault(m.group(1), {})["results"] = resp.json()
+                except Exception:
+                    pass
+                return
+            m = QUIZ_SESSION_RE.search(resp.url)
+            if m and resp.status == 200 and "quiz-api" in resp.url:
+                try:
+                    meta = (resp.json() or {}).get("metadata") or {}
+                    captured.setdefault(m.group(1), {})["name"] = meta.get("user_full_name")
+                except Exception:
+                    pass
+
+        ctx.on("response", on_response)
+        # Any route turns off the HTTP cache for matching requests, so a
+        # rerun never gets an empty "304 Not Modified" instead of the JSON.
+        ctx.route("**/api/quiz_sessions/**", lambda route: route.continue_())
+        # Our own tab, so an attached browser's existing tabs are left alone.
+        page = ctx.new_page() if attached or not ctx.pages else ctx.pages[0]
+        course_url = f"{canvas.base}/courses/{cid}"
+
+        def signed_in_page():
+            for pg in ctx.pages:
+                try:
+                    u = pg.url
+                except PWError:
+                    continue
+                if u.startswith(course_url) or (u.startswith(canvas.base)
+                                                and "/login" not in u):
+                    return pg
+            return None
+
+        print("Opening Canvas ...")
+        try:
+            # "commit" returns as soon as the server answers, so an SSO
+            # redirect chain or certificate prompt can't block this call.
+            page.goto(course_url, wait_until="commit", timeout=60_000)
+        except PWError as exc:
+            print(f"  (first page load did not finish: {str(exc).splitlines()[0]})")
+        page.wait_for_timeout(2000)
+        if signed_in_page() is None:
+            print("Sign in to Canvas in the browser window (SSO / CAC / 2FA as "
+                  "usual). This continues by itself once Canvas has loaded; "
+                  f"waiting up to {args.signin_timeout:.0f}s.")
+            deadline = time.monotonic() + args.signin_timeout
+            last_note = time.monotonic()
+            # Polling with wait_for_timeout keeps Playwright processing
+            # events while you sign in (a blocking input() would not).
+            while signed_in_page() is None and time.monotonic() < deadline:
+                page.wait_for_timeout(1000)
+                if time.monotonic() - last_note > 30:
+                    last_note = time.monotonic()
+                    urls = []
+                    for pg in ctx.pages:
+                        try:
+                            urls.append(requests.utils.urlparse(pg.url).netloc or pg.url)
+                        except PWError:
+                            pass
+                    print(f"  still waiting; open tab(s): {', '.join(urls) or 'none'}")
+            found = signed_in_page()
+            if found is None:
+                raise SystemExit(
+                    "Not signed in to Canvas after "
+                    f"{args.signin_timeout:.0f}s. If the sign-in page never "
+                    "finished (common with CAC certificate prompts in a browser "
+                    "Playwright starts), use --connect-browser instead; see "
+                    "--help.")
+            if found is not page:
+                page = found
+        print("Signed in.")
+
+        for n, (uid, sub, sess) in enumerate(todo, 1):
+            base, folder, who = student_folder(uid)
+            print(f"  [{n}/{len(todo)}] {who}", end="", flush=True)
+            before = set(captured)
+            url = (f"{canvas.base}/courses/{cid}/gradebook/speed_grader"
+                   f"?assignment_id={aid}&student_id={uid}")
+            got = None
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+                deadline = time.monotonic() + args.page_timeout
+                while time.monotonic() < deadline:
+                    if sess and "results" in captured.get(sess, {}):
+                        got = sess
+                        break
+                    if not sess:
+                        fresh = [s for s in captured if s not in before
+                                 and "results" in captured[s]]
+                        if fresh:
+                            got = fresh[0]
+                            break
+                    page.wait_for_timeout(250)
+            except PWError as exc:
+                print(f"  ! page error: {exc}")
+            if got is None:
+                failed += 1
+                print(f"  ! quiz results did not load within {args.page_timeout:.0f}s")
+                log.append({"student_folder": who, "user_id": uid, "quiz_session": sess or "",
+                            "question": "", "file": "", "size": "", "status":
+                            "failed: quiz results did not load"})
+                continue
+            name_seen = captured[got].get("name")
+            if not sess and name_seen and not name_matches(name_seen, roster.users[uid]):
+                failed += 1
+                print(f"  ! loaded quiz belongs to {name_seen!r}; skipped")
+                log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
+                            "question": "", "file": "", "size": "",
+                            "status": f"failed: page showed {name_seen}"})
+                continue
+
+            files = uploads_in_results(captured[got]["results"])
+            if not files:
+                no_files += 1
+                print("  (no uploaded files)")
+                log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
+                            "question": "", "file": "", "size": "", "status": "no files"})
+                continue
+            print(f"  {len(files)} file(s)")
+            for f in files:
+                fname = f"Q{f['position']}__{safe_filename(f['name'])}"
+                target = folder / fname
+                status = ""
+                if target.exists() and (f["size"] is None
+                                        or target.stat().st_size == f["size"]):
+                    status = "cached"
+                else:
+                    try:
+                        r = ctx.request.get(f["url"], timeout=120_000)
+                        if not r.ok:
+                            raise RuntimeError(f"HTTP {r.status}")
+                        body = r.body()
+                        folder.mkdir(parents=True, exist_ok=True)
+                        tmp = target.with_name(target.name + ".part")
+                        tmp.write_bytes(body)
+                        tmp.replace(target)
+                        status = "downloaded"
+                        if f["size"] is not None and len(body) != f["size"]:
+                            status += f" (size {len(body)}, quiz listed {f['size']})"
+                    except Exception as exc:
+                        # Fall back to clicking the file link in the grading view.
+                        try:
+                            frame = next(fr for fr in page.frames if "quiz-lti" in fr.url)
+                            with page.expect_download(timeout=60_000) as dl:
+                                frame.get_by_text(f["name"], exact=True).first.click()
+                            folder.mkdir(parents=True, exist_ok=True)
+                            dl.value.save_as(target)
+                            status = "downloaded (via click)"
+                        except Exception as exc2:
+                            status = f"failed: {exc}; click: {exc2}"
+                if status.startswith("failed"):
+                    failed += 1
+                else:
+                    saved += 1
+                print(f"      {status:<11} {target.relative_to(base)}")
+                log.append({"student_folder": who, "user_id": uid, "quiz_session": got,
+                            "question": f["position"], "file": f["name"],
+                            "size": f["size"] or "", "status": status})
+            page.wait_for_timeout(args.delay * 1000)
+        if attached:
+            page.close()          # leave the user's browser and tabs open
+        else:
+            ctx.close()
+
+    for d in plan.dirs:
+        rows = [x for x in log if (plan.dir_of or {}).get(x["user_id"], plan.dirs[0]) == d]
+        if rows:
+            p = d / f"{stem}_uploads" / "uploads_log.csv"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w", newline="", encoding="utf-8-sig") as fh:
+                w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+                w.writeheader()
+                w.writerows(rows)
+            print(f"Log: {p}")
+    print(f"\n{saved} file(s) saved, {no_files} student(s) with no upload, "
+          f"{failed} problem(s).")
+    return 0 if not failed else 3
+
+
+def export_quiz(canvas: Canvas, args) -> int:
+    """--export-quiz: download one quiz's student answers and its content."""
+    if not args.assignment or len(args.assignment) != 1:
+        raise SystemExit("--export-quiz needs exactly one --assignment "
+                         "(the quiz's assignment ID; see --list-assignments).")
+    cid, aid = args.course, args.assignment[0]
+    try:
+        assignment = canvas.assignment(cid, aid)
+    except requests.HTTPError as exc:
+        raise SystemExit(f"Assignment {aid} not found in course {cid} ({exc}).")
+    kind = quiz_kind(assignment)
+    if kind is None:
+        raise SystemExit(f"Assignment {aid} ({assignment.get('name')}) is not a quiz.")
+    print(f"[{aid}] {assignment.get('name')}  "
+          f"({'New Quiz' if kind == 'new' else 'Classic Quiz'})")
+
+    plan = quiz_export_plan(canvas, args, assignment)
+    if plan is None:
+        print("None of the selected students are assigned this quiz; nothing "
+              "exported.", file=sys.stderr)
+        return 1
+    adir = assignment_folder(Path(args.out), assignment)
+    primary = plan.dirs[0]
+    stem = slug(assignment.get("name") or str(aid), 50)
+    state_path = adir / EXPORT_STATE_FILE
+    shared: list[Path] = []      # written once, copied into every folder
+    per_dir: list[Path] = []     # already written into each folder
+    warnings: list[str] = []
+    answers_missing = False      # exit 3
+    course_incomplete = False    # exit 2
+
+    if kind == "classic":
+        quiz_id = assignment.get("quiz_id")
+        if not quiz_id:
+            raise SystemExit("Classic quiz with no quiz_id on its assignment.")
+        if args.dry_run:
+            print(f"Dry run: would export Classic quiz {quiz_id} as QTI to {primary}")
+            return 0
+        dest = primary / f"{stem}_qti.zip"
+        run_content_export(canvas, cid, "qti", {"quizzes": [quiz_id]}, state_path,
+                           adir / f".{stem}_qti.download", args.export_timeout
+                           ).replace(dest)
+        shared.append(dest)
+        if not args.no_answers:
+            warnings.append("student answers are only implemented for New Quizzes; "
+                            "this Classic Quiz was exported without them")
+            answers_missing = True
+    else:
+        quiz = canvas.new_quiz(cid, aid)
+        items = canvas.new_quiz_items(cid, aid)
+        ident = "g" + __import__("hashlib").md5(f"{cid}:{aid}".encode()).hexdigest()
+        builder = QtiBuilder(quiz, ident)
+        for it in QtiBuilder.ordered(items):
+            builder.add(it)
+        in_qti = sum(1 for r in builder.report if r["In QTI"] == "yes")
+        print(f"  {len(items)} item(s); {in_qti} converted to QTI")
+        for r in builder.report:
+            mark = " " if r["In QTI"] == "yes" else "!"
+            label = r["Question Type"] or r["Entry Type"]
+            note = f"  -- {r['Notes']}" if r["Notes"] else ""
+            print(f"   {mark} {str(r['Position']):>3}  {label:<16} "
+                  f"{(r['Title'] or '')[:40]}{note}")
+        if args.dry_run:
+            what = [] if args.no_answers else ["request the student analysis report"]
+            if not args.no_course_export:
+                what.append("start a course export")
+            print("Dry run: nothing written" + (", did not " + " or ".join(what)
+                                               if what else "") + ".")
+            print("Output folder(s): " + ", ".join(str(d) for d in plan.dirs))
+            return 0
+        if not items:
+            warnings.append("the quiz has no items")
+
+        primary.mkdir(parents=True, exist_ok=True)
+        json_path = primary / f"{stem}_new-quiz.json"
+        tmp = json_path.with_name(json_path.name + ".part")
+        tmp.write_text(json.dumps({
+            "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "canvas_host": args.base_url, "course_id": cid, "assignment_id": aid,
+            "assignment_name": assignment.get("name"),
+            "quiz": quiz, "items": items}, indent=2, ensure_ascii=False),
+            encoding="utf-8")
+        tmp.replace(json_path)
+        json.loads(json_path.read_text(encoding="utf-8"))    # round-trip check
+        shared.append(json_path)
+
+        qti_path = primary / f"{stem}_qti.zip"
+        builder.write_zip(qti_path)
+        verify_qti_zip(qti_path, in_qti)
+        shared.append(qti_path)
+
+        report_path = primary / f"{stem}_qti-report.csv"
+        with open(report_path, "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.DictWriter(fh, fieldnames=QTI_REPORT_COLUMNS)
+            w.writeheader()
+            w.writerows(builder.report)
+        shared.append(report_path)
+        if in_qti < len(items):
+            warnings.append(f"{len(items) - in_qti} item(s) are in the JSON but not "
+                            f"the QTI; see {report_path.name}")
+
+        if not args.no_answers:
+            print("Student answers (student analysis report):")
+            raw = adir / f".{stem}_student-answers.download"
+            try:
+                run_quiz_report(canvas, cid, aid, state_path, raw, args.export_timeout)
+                files, notes = write_answers(raw, plan, f"{stem}_student-answers.csv")
+                per_dir += files
+                warnings += notes
+                if args.quiz_uploads:
+                    print("File Upload answers (links in the report):")
+                    try:
+                        n, notes = download_report_uploads(canvas, raw, plan, cid, stem)
+                        warnings += notes
+                        if n:
+                            print(f"  {n} uploaded file(s) saved under "
+                                  f"{stem}_uploads/")
+                    except (OSError, ValueError, csv.Error,
+                            requests.RequestException) as exc:
+                        warnings.append(f"file uploads: {exc}")
+            except (RuntimeError, TimeoutError, OSError, ValueError, csv.Error,
+                    requests.RequestException) as exc:
+                warnings.append(f"student answers: {exc}")
+                answers_missing = True
+            finally:
+                raw.unlink(missing_ok=True)    # the unfiltered report never stays
+
+        if not args.no_course_export:
+            print("Course export (Common Cartridge) of this quiz's assignment:")
+            tmp_cc = adir / f".{stem}_course-export.download"
+            try:
+                run_content_export(canvas, cid, "common_cartridge",
+                                   {"assignments": [aid]}, state_path, tmp_cc,
+                                   args.export_timeout)
+                ok, why = package_contains_quiz(tmp_cc, quiz, items)
+                if ok:
+                    cc_path = primary / f"{stem}_course-export.imscc"
+                    tmp_cc.replace(cc_path)
+                    shared.append(cc_path)
+                    print(f"  kept: {why}")
+                else:
+                    warnings.append(f"course export not kept: {why}")
+            except (RuntimeError, TimeoutError, OSError,
+                    requests.RequestException) as exc:
+                warnings.append(f"course export: {exc}")
+                course_incomplete = True
+            finally:
+                tmp_cc.unlink(missing_ok=True)
+
+    if state_path.exists() and not _load_state(state_path):
+        state_path.unlink()
+    for extra in plan.dirs[1:]:
+        extra.mkdir(parents=True, exist_ok=True)
+        for f in shared:
+            shutil.copy2(f, extra / f.name)
+
+    print("\nExported:")
+    names = [f.name for f in shared] + sorted({f.name for f in per_dir})
+    for d in plan.dirs:
+        for n in names:
+            p = d / n
+            if p.exists():
+                print(f"  {p}  ({p.stat().st_size:,} bytes)")
+    for w_ in warnings:
+        print(f"  ! {w_}", file=sys.stderr)
+    print(f"API use: {canvas.rate_summary()}")
+    if answers_missing:
+        return 3
+    return 2 if course_incomplete else 0
 
 
 # --------------------------------------------------------------------------
@@ -2084,7 +4100,10 @@ def main() -> int:
     g.add_argument("--dry-run", action="store_true",
                    help="With --post-grades: check files against Canvas and show "
                         "the plan, but post nothing. With --organize: show "
-                        "where everything would go, change nothing.")
+                        "where everything would go, change nothing. With "
+                        "--export-quiz: fetch the quiz and show how each item "
+                        "converts and where files would go, but write nothing "
+                        "and start no report or export job.")
     g.add_argument("--yes", action="store_true",
                    help="With --post-grades: skip the confirmation prompt")
     g.add_argument("--allow-duplicate-comments", action="store_true",
@@ -2123,17 +4142,71 @@ def main() -> int:
     g4.add_argument("--organize-to", metavar="DIR",
                     help="With --organize: copy into this folder instead of "
                          "moving in place")
+    g5 = p.add_argument_group("exporting quiz questions and answers")
+    g5.add_argument("--export-quiz", action="store_true",
+                    help="Download one New Quiz's student answers plus its "
+                         "content (--assignment is the quiz's assignment ID) into "
+                         "its folder under --out. --section/--student choose whose "
+                         "answers are kept; --by-section writes one folder per "
+                         "section, each with a copy of the quiz content.")
+    g5.add_argument("--no-answers", action="store_true",
+                    help="With --export-quiz: export the quiz content only, "
+                         "without student answers")
+    g5.add_argument("--quiz-uploads", action="store_true",
+                    help="With --export-quiz (New Quizzes): also download the "
+                         "files students uploaded to File Upload questions, "
+                         "found as links in the student analysis report, into "
+                         "<Quiz>_uploads/<Student>/. Best effort: New Quizzes "
+                         "has no API for these files.")
+    g6 = p.add_argument_group("New Quiz file uploads through the browser (Playwright)")
+    g6.add_argument("--browser-uploads", action="store_true",
+                    help="Download a New Quiz's File Upload answers by opening each "
+                         "submitted student in SpeedGrader in a browser. Needs "
+                         "--assignment; honours --section/--student/--by-section.")
+    g6.add_argument("--browser-profile", default="./canvas-browser-profile", metavar="DIR",
+                    help="Browser profile folder that keeps you signed in between "
+                         "runs (default ./canvas-browser-profile). Keep it private.")
+    g6.add_argument("--browser-channel", default="chrome",
+                    choices=["chrome", "msedge", "chromium"],
+                    help="Installed Chrome (default), Edge, or Playwright's own Chromium")
+    g6.add_argument("--connect-browser", metavar="URL",
+                    help="Use a Chrome/Edge you started yourself with "
+                         "--remote-debugging-port, e.g. http://localhost:9222, "
+                         "instead of launching one. Use this if sign-in (e.g. "
+                         "CAC) hangs in the browser the script starts.")
+    g6.add_argument("--signin-timeout", type=float, default=600, metavar="SECONDS",
+                    help="How long to wait for you to sign in (default 600)")
+    g6.add_argument("--headless", action="store_true",
+                    help="Hide the browser window (only once the profile is signed in)")
+    g6.add_argument("--page-timeout", type=float, default=45, metavar="SECONDS",
+                    help="How long to wait for each student's quiz to load (default 45)")
+    g6.add_argument("--delay", type=float, default=1.0, metavar="SECONDS",
+                    help="Pause between students (default 1)")
+    g6.add_argument("--limit", type=int, metavar="N",
+                    help="Only the first N students (alphabetical) -- for a trial run")
+    g5.add_argument("--no-course-export", action="store_true",
+                    help="With --export-quiz: skip the Common Cartridge course "
+                         "export attempt (the slowest, heaviest part)")
+    g5.add_argument("--export-timeout", type=float, default=900, metavar="SECONDS",
+                    help="With --export-quiz: how long to wait for each Canvas "
+                         "report or export job (default 900). A rerun resumes a "
+                         "job that timed out.")
     args = p.parse_args()
     modes = [m for m, on in (("--post-grades", args.post_grades),
                              ("--make-grade-files", args.make_grade_files),
                              ("--roster-csv", args.roster_csv),
-                             ("--organize", args.organize)) if on]
+                             ("--organize", args.organize),
+                             ("--export-quiz", args.export_quiz),
+                             ("--browser-uploads", args.browser_uploads)) if on]
     if len(modes) > 1:
         p.error(" and ".join(modes) + " cannot be combined")
     if args.organize:
         if not args.roster:
             p.error("--organize needs --roster FILE (make one with --roster-csv)")
         return organize_submissions(args)
+    if args.quiz_uploads and (not args.export_quiz or args.no_answers):
+        p.error("--quiz-uploads needs --export-quiz (and the answers report, "
+                "so not --no-answers)")
     if (args.roster or args.organize_to) and not args.organize:
         p.error("--roster and --organize-to are only used with --organize")
     if not args.base_url:
@@ -2157,6 +4230,12 @@ def main() -> int:
 
     if args.roster_csv:
         return export_roster_csv(canvas, args)
+
+    if args.export_quiz:
+        return export_quiz(canvas, args)
+
+    if args.browser_uploads:
+        return browser_quiz_uploads(canvas, args)
 
     tz = None
     if args.tz:
@@ -2220,21 +4299,27 @@ def main() -> int:
 
     out_root = Path(args.out)
     rows = []
+    new_quizzes_without_files: list[dict] = []
 
     for idx, assign in enumerate(assignments, start=1):
         adir = out_root / f"{idx:02d}_{slug(assign['name'])}"
         due = DueDates(assign)
         base_str = fmt_ts(due.base, tz) or "no due date"
-        print(f"\n[{assign['id']}] {assign['name']}  (due {base_str})")
+        is_new_quiz = quiz_kind(assign) == "new"
+        print(f"\n[{assign['id']}] {assign['name']}  (due {base_str})"
+              + ("  [New Quiz]" if is_new_quiz else ""))
+        submitted = with_files = 0
 
         for sub in canvas.submissions(args.course, assign["id"], args.history):
             if student_ids is not None and sub.get("user_id") not in student_ids:
                 continue
             if sub.get("workflow_state") == "unsubmitted":
                 continue
+            submitted += 1
             attachments = collect_attachments(sub, args.history)
             if not attachments:
                 continue
+            with_files += 1
 
             section = (roster.primary_section(sub["user_id"], section_ids)
                        if roster else None)
@@ -2265,7 +4350,7 @@ def main() -> int:
                     fname = flat_filename(sub, fname)
                 target = sdir / fname
                 try:
-                    fresh = download(att["url"], target, att.get("size"))
+                    fresh = download(canvas, att["url"], target, att.get("size"))
                 except Exception as exc:
                     print(f"    ! failed {fname}: {exc}")
                     continue
@@ -2302,6 +4387,22 @@ def main() -> int:
                     "extracted_to": extracted_to,
                 })
 
+        if is_new_quiz and not with_files:
+            # New Quiz submissions are LTI launches (basic_lti_launch): the
+            # files from File Upload questions stay inside New Quizzes and
+            # never appear as attachments on the Canvas submission.
+            new_quizzes_without_files.append(assign)
+            print(f"  {submitted} submitted, but New Quizzes keeps File Upload "
+                  "answers inside the quiz tool, not on the Canvas submission, "
+                  "so there are no attachments to download here.")
+
+    if new_quizzes_without_files:
+        print("\nNew Quiz file uploads can't be fetched with the Submissions API. "
+              "To try pulling them from the quiz's answers report instead, run:")
+        for a in new_quizzes_without_files:
+            print(f"  --course {args.course} --assignment {a['id']} "
+                  "--export-quiz --quiz-uploads --no-course-export")
+
     if rows:
         out_root.mkdir(parents=True, exist_ok=True)
         manifest = out_root / "manifest.csv"
@@ -2311,7 +4412,9 @@ def main() -> int:
             writer.writerows(rows)
         print(f"\n{len(rows)} file(s). Manifest: {manifest}")
     else:
-        print("\nNo submission files found.")
+        print("\nNo submission files found."
+              + (" (New Quizzes skipped for the reason above.)"
+                 if new_quizzes_without_files else ""))
 
     # The Excel log is written even on an empty run, so there is a record
     # that the run happened and matched nothing.
