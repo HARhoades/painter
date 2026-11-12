@@ -1,13 +1,11 @@
 """The command line's exit status: one table for every command."""
 from __future__ import annotations
 
-from datetime import datetime
 import sys
-import traceback
 
 import requests
 
-from painter.config import app_data_dir
+from painter.crash import crash_text, write_crash_report
 from painter.errors import (
     BrowserUnavailable, Cancelled, CanvasHTTPError, InvalidInput, MissingDependency,
     PainterError,
@@ -82,18 +80,10 @@ def for_exception(exc: BaseException, debug: bool = False) -> int:
 def _crash(exc: BaseException, debug: bool) -> int:
     """Failed for a reason the tool doesn't recognise: one line, and the full
     traceback in a crash report (or on screen with --debug)."""
-    text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     if debug:
-        _err(text.rstrip())
+        _err(crash_text(exc).rstrip())
         return UNKNOWN
-    path = None
-    try:
-        logs = app_data_dir() / "logs"
-        logs.mkdir(parents=True, exist_ok=True)
-        path = logs / f"crash_{datetime.now():%Y%m%d_%H%M%S}.txt"
-        path.write_text(f"painter {' '.join(sys.argv[1:])}\n\n{text}", encoding="utf-8")
-    except OSError:
-        path = None
+    path = write_crash_report(exc, f"painter {' '.join(sys.argv[1:])}")
     _err(f"Error: unexpected problem ({type(exc).__name__}: {exc}).")
     _err(f"  Details: {path}" if path else "  Run again with --debug to see the details.")
     return UNKNOWN

@@ -63,3 +63,37 @@ def test_the_checker_catches_each_pattern_and_skips_comments_and_strings():
 def test_no_terminal_io_outside_cli(path):
     found = violations(path.read_text(encoding="utf-8"))
     assert not found, f"{path.relative_to(PKG.parent)}: " + ", ".join(found)
+
+
+# ---- phase 5: the window's boundary ---------------------------------------------
+import ast  # noqa: E402
+
+GUI = PKG / "gui"
+
+
+def _imports(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            out |= {a.name for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            out.add(node.module)
+    return out
+
+
+@pytest.mark.parametrize("path", sorted(PKG.rglob("*.py")),
+                         ids=lambda p: str(p.relative_to(PKG.parent)).replace("\\", "/"))
+def test_only_the_window_imports_qt(path):
+    if GUI in path.parents:
+        return
+    qt = {m for m in _imports(path) if m.split(".")[0] in ("PySide6", "PyQt6", "PyQt5", "shiboken6")}
+    assert not qt, f"{path.relative_to(PKG.parent)} imports {sorted(qt)}"
+
+
+@pytest.mark.parametrize("path", sorted(GUI.rglob("*.py")),
+                         ids=lambda p: str(p.relative_to(PKG.parent)).replace("\\", "/"))
+def test_the_window_uses_services_not_the_cli_or_http(path):
+    bad = {m for m in _imports(path)
+           if m.startswith("painter.cli") or m.split(".")[0] in ("requests", "urllib3")}
+    assert not bad, f"{path.relative_to(PKG.parent)} imports {sorted(bad)}"

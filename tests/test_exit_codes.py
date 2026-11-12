@@ -44,7 +44,7 @@ def _boom(exc):
 
 
 def test_unexpected_error_writes_a_crash_report(fake_canvas, run_cli, monkeypatch, tmp_path):
-    monkeypatch.setattr("painter.cli.exit_codes.app_data_dir", lambda: tmp_path / "app")
+    monkeypatch.setattr("painter.crash.app_data_dir", lambda: tmp_path / "app")
     monkeypatch.setattr("painter.cli.commands.download_submissions",
                         _boom(ZeroDivisionError("bad sum")))
     code, _, err = run_cli(*COMMON, "download", "--out", str(tmp_path / "o"))

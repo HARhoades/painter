@@ -6,6 +6,7 @@ Canvas client.
 """
 from __future__ import annotations
 
+import os
 import io
 import json
 import sys
@@ -245,3 +246,22 @@ def add_courses(fake):
     ]
     fake.extra[("GET", "/api/v1/users/self")] = {"id": 900, "name": "Hunter Rhoades",
                                                  "short_name": "Hunter Rhoades"}
+
+
+# ---- the window (tests/gui): skipped unless PySide6 and pytest-qt are installed ----
+@pytest.fixture
+def courses(fake_canvas):
+    add_courses(fake_canvas)
+    return fake_canvas
+
+
+@pytest.fixture
+def painter_qapp(qapp):
+    """The QApplication with Painter's fonts and stylesheet (once per session)."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    if not getattr(qapp, "_painter_styled", False):
+        from painter.gui.style import build_qss, load_fonts
+        load_fonts()
+        qapp.setStyleSheet(build_qss())
+        qapp._painter_styled = True
+    return qapp
