@@ -93,6 +93,64 @@ def student_listing(canvas: Canvas, course_id: int, roster: Roster,
                           chosen.notes)
 
 
+@dataclass
+class AssignmentInfo:
+    id: int
+    name: str
+    due: str                              # formatted "Everyone" due date, "" if none
+    new_quiz: bool                        # files come via Quiz uploads, not here
+    published: bool = True
+
+
+def assignment_listing(canvas: Canvas, course_id: int, tz: str | None = None
+                       ) -> list[AssignmentInfo]:
+    """Assignments in course order, for a picker."""
+    zone = parse_tz(tz)
+    return [AssignmentInfo(a["id"], a.get("name", ""),
+                           fmt_ts(DueDates(a).base, zone) or "",
+                           quiz_kind(a) == "new", bool(a.get("published", True)))
+            for a in canvas.assignments(course_id)]
+
+
+@dataclass
+class AssignmentCount:
+    submitted: int                        # selected students who submitted
+    files: int                            # attachments a download would fetch
+
+
+@dataclass
+class FileCount:
+    per_assignment: dict[int, AssignmentCount]
+    students: int | None                  # selected students; None: everyone
+
+    @property
+    def files(self) -> int:
+        return sum(c.files for c in self.per_assignment.values())
+
+
+@watches_canvas()
+def count_files(canvas: Canvas, course_id: int, assignment_ids: tuple[int, ...],
+                selection: Selection = Selection(), history: bool = False,
+                reporter: Reporter = NULL) -> FileCount:
+    """How many files a download with these choices would fetch.
+
+    Reads only. Stops between assignments when cancelled (Cancelled carries
+    the count so far). Uses submissions_to_fetch, like the download.
+    """
+    student_ids = None
+    if selection.active:
+        chosen = selection.resolve(Roster.load(canvas, course_id))
+        student_ids = chosen.student_ids
+    result = FileCount({}, None if student_ids is None else len(student_ids))
+    for n, aid in enumerate(assignment_ids, start=1):
+        if reporter.cancelled():
+            raise Cancelled("stopped counting", result)
+        submitted, todo = submissions_to_fetch(canvas, course_id, aid, student_ids, history)
+        result.per_assignment[aid] = AssignmentCount(submitted, sum(len(a) for _, a in todo))
+        reporter.progress(n, len(assignment_ids), str(aid))
+    return result
+
+
 # --------------------------------------------------------------------------
 # Downloading submission files
 # --------------------------------------------------------------------------
@@ -138,6 +196,28 @@ class _DownloadRun:
     stage_done: int = 0                    # files done / to do in this assignment
     stage_total: int = 0
     new_quizzes_without_files: list[dict] = field(default_factory=list)
+
+
+def submissions_to_fetch(canvas: Canvas, course_id: int, assignment_id: int,
+                         student_ids: set[int] | None, history: bool
+                         ) -> tuple[int, list[tuple[dict, list[dict]]]]:
+    """(submitted count, [(submission, attachments)]) for one assignment.
+
+    The one place that decides which files a download fetches, so the
+    window's file count and the download itself always agree.
+    """
+    submitted = 0
+    todo = []
+    for sub in canvas.submissions(course_id, assignment_id, history):
+        if student_ids is not None and sub.get("user_id") not in student_ids:
+            continue
+        if sub.get("workflow_state") == "unsubmitted":
+            continue
+        submitted += 1
+        attachments = collect_attachments(sub, history)
+        if attachments:
+            todo.append((sub, attachments))
+    return submitted, todo
 
 
 @watches_canvas()
@@ -192,17 +272,8 @@ def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int)
     is_new_quiz = quiz_kind(assign) == "new"
     reporter.info(f"\n[{assign['id']}] {assign['name']}  (due {base_str})"
                   + ("  [New Quiz]" if is_new_quiz else ""))
-    submitted = 0
-    todo = []                 # (submission, attachments): counted before any download
-    for sub in run.canvas.submissions(req.course_id, assign["id"], req.history):
-        if run.student_ids is not None and sub.get("user_id") not in run.student_ids:
-            continue
-        if sub.get("workflow_state") == "unsubmitted":
-            continue
-        submitted += 1
-        attachments = collect_attachments(sub, req.history)
-        if attachments:
-            todo.append((sub, attachments))
+    submitted, todo = submissions_to_fetch(run.canvas, req.course_id, assign["id"],
+                                           run.student_ids, req.history)
     with_files = len(todo)
     run.stage_done, run.stage_total = 0, sum(len(a) for _, a in todo)
     reporter.event(Stage(f"Downloading {assign['name']}", total=run.stage_total,

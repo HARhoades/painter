@@ -280,6 +280,14 @@ class Canvas:
             parts.append(f"lowest X-Rate-Limit-Remaining {s['min_remaining']:.0f}")
         return ", ".join(parts)
 
+    def courses(self) -> list[dict]:
+        """Courses the user is enrolled in (any role), with term, sections,
+        student count and the user's own enrollments (to tell teacher from TA)."""
+        return list(self.paginate("/courses", {
+            "enrollment_state": "active",
+            "include[]": ["term", "total_students", "sections"],
+        }))
+
     def assignments(self, course_id: int):
         """Assignments, including per-section and per-student date overrides.
 

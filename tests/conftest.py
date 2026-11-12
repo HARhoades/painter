@@ -225,3 +225,23 @@ def run_cli(monkeypatch, capsys):
         out, err = capsys.readouterr()
         return code, out, err
     return run
+
+
+def add_courses(fake):
+    """Courses for the window's Home screen: teacher, TA, an old term, a student-only one."""
+    now_term = {"name": "AY27-1", "start_at": "2026-08-01T00:00:00Z", "end_at": "2027-01-01T00:00:00Z"}
+    old_term = {"name": "AY26-2", "start_at": "2026-01-01T00:00:00Z", "end_at": "2026-06-01T00:00:00Z"}
+    fake.extra[("GET", "/api/v1/courses")] = [
+        {"id": 100, "name": "AI105", "course_code": "AI105-27-1", "term": now_term,
+         "total_students": 3, "sections": [{"id": 11}, {"id": 12}],
+         "enrollments": [{"type": "teacher"}]},
+        {"id": 200, "name": "Bridge Course", "course_code": "BR-27-1", "term": now_term,
+         "total_students": 18, "sections": [{"id": 21}],
+         "enrollments": [{"type": "ta"}]},
+        {"id": 300, "name": "Archive", "course_code": "AR-26-2", "term": old_term,
+         "total_students": 40, "sections": [], "enrollments": [{"type": "teacher"}, {"type": "ta"}]},
+        {"id": 400, "name": "Taking a class", "course_code": "X", "term": now_term,
+         "enrollments": [{"type": "student"}]},
+    ]
+    fake.extra[("GET", "/api/v1/users/self")] = {"id": 900, "name": "Hunter Rhoades",
+                                                 "short_name": "Hunter Rhoades"}
