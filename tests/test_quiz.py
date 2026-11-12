@@ -200,3 +200,16 @@ def test_file_link_check_rejects_lookalike_hosts():
     host = BASE.split("//")[1]
     assert not _is_file_link("https://instructure.evil.example/x", host)
     assert not _is_file_link("http://10.0.0.5/files/1", host)
+
+
+def test_quiz_report_without_job_id_is_not_reposted(fake_canvas, tmp_path):
+    """Review finding 1: a 2xx with no id must not trigger another POST."""
+    from painter.canvas.client import Canvas
+    from painter.services.quiz_export import run_quiz_report
+    path = "/api/quiz/v1/courses/100/quizzes/7001/reports"
+    fake_canvas.extra[("POST", path)] = {}
+    canvas = Canvas(BASE, "t")
+    with pytest.raises(RuntimeError, match="no job id"):
+        run_quiz_report(canvas, 100, 7001, tmp_path / ".state.json",
+                        tmp_path / "r.csv", timeout=5)
+    assert sum(1 for m, p, _ in fake_canvas.calls if m == "POST" and p == path) == 1

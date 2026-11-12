@@ -150,8 +150,13 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
         while True:
             try:
                 progress = canvas.create_quiz_report(course_id, assignment_id)
-                if progress.get("id", None):
-                    break
+                # A POST that succeeded is never repeated: it may have started
+                # a job even if the reply carries no id (review finding 1).
+                if not isinstance(progress, dict) or not progress.get("id"):
+                    raise RuntimeError("Canvas accepted the student analysis report "
+                                       "request but returned no job id "
+                                       f"({progress!r}); not retrying")
+                break
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else None
                 remaining = deadline - time.monotonic()
