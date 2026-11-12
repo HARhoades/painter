@@ -17,7 +17,7 @@ from painter.domain.selection import Selection
 from painter.errors import Cancelled, InvalidInput, NotFound
 from painter.events import NULL, Reporter
 from painter.canvas.jobs import (
-    POLL_CAP, POLL_FACTOR, POLL_START, _load_state, _save_state, poll_until,
+    POLL_CAP, POLL_FACTOR, POLL_START, ResumableJob, discard_if_empty, poll_until,
 )
 from painter.domain.assignments import assignment_folder, quiz_kind, require_one
 from painter.domain.duedates import fmt_ts, parse_ts
@@ -123,11 +123,11 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
     interval as polling, then requested again. A POST that fails any other
     way is never repeated.
     """
-    state = _load_state(state_path)
+    job = ResumableJob(state_path, ANSWERS_STATE_KEY,
+                       {"course_id": course_id, "assignment_id": assignment_id})
     progress = None
-    saved = state.get(ANSWERS_STATE_KEY)
-    if saved and saved.get("course_id") == course_id \
-            and saved.get("assignment_id") == assignment_id:
+    saved = job.saved()
+    if saved:
         try:
             progress = canvas.progress(saved["progress_id"])
         except NotFound:          # job expired; a bad token is not this
@@ -171,10 +171,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
                     told = True
                 canvas.sleep(min(wait, remaining))
                 wait = min(POLL_CAP, wait * POLL_FACTOR)
-        state[ANSWERS_STATE_KEY] = {"course_id": course_id,
-                                    "assignment_id": assignment_id,
-                                    "progress_id": progress["id"]}
-        _save_state(state_path, state)
+        job.save(progress_id=progress["id"])
         reporter.info(f"  started report job {progress['id']}")
 
     last = [progress.get("completion")]
@@ -194,8 +191,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
                            "Rerun the same command to pick it up; no new job "
                            "will be started.")
     if progress.get("workflow_state") == "failed":
-        state.pop(ANSWERS_STATE_KEY, None)
-        _save_state(state_path, state)
+        job.clear()
         raise RuntimeError(f"Canvas reports the student analysis report failed"
                            + (f": {progress['message']}" if progress.get("message") else ""))
     results = progress.get("results")
@@ -206,8 +202,7 @@ def run_quiz_report(canvas: Canvas, course_id: int, assignment_id: int,
     got = canvas.fetch_file(url, dest, auth=True)
     if got.note:
         reporter.warning(got.note)
-    state.pop(ANSWERS_STATE_KEY, None)      # kept until now so a failed
-    _save_state(state_path, state)          # download can resume the job
+    job.clear()                     # kept until now so a failed download can resume
     return dest
 
 
@@ -247,11 +242,11 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
     started the job anyway -- so the recent export list is checked for it.
     """
     from datetime import timezone
-    key = f"{export_type}:" + json.dumps(select, sort_keys=True)
-    state = _load_state(state_path)
+    job = ResumableJob(state_path, f"{export_type}:" + json.dumps(select, sort_keys=True),
+                       {"course_id": course_id})
     export = None
-    saved = state.get(key)
-    if saved and saved.get("course_id") == course_id:
+    saved = job.saved()
+    if saved:
         try:
             export = canvas.content_export(course_id, saved["export_id"])
         except NotFound:
@@ -278,9 +273,7 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
                   "using it")
         else:
             reporter.info(f"  started export {export['id']}")
-        state[key] = {"course_id": course_id, "export_id": export["id"],
-                      "created_at": export.get("created_at")}
-        _save_state(state_path, state)
+        job.save(export_id=export["id"], created_at=export.get("created_at"))
 
     last_state = [export.get("workflow_state")]
 
@@ -299,13 +292,11 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
             f"{timeout:.0f}s. Rerun the same command to pick it up; no new job "
             "will be started.")
     if export.get("workflow_state") == "failed":
-        state.pop(key, None)
-        _save_state(state_path, state)
+        job.clear()
         raise RuntimeError(f"Canvas reports export {export['id']} failed")
     attachment = export.get("attachment") or {}
     if not attachment.get("url"):
-        state.pop(key, None)
-        _save_state(state_path, state)
+        job.clear()
         raise RuntimeError(f"export {export['id']} finished but has no download link")
 
     dest.unlink(missing_ok=True)            # never treat an old file as cached
@@ -314,8 +305,7 @@ def run_content_export(canvas: Canvas, course_id: int, export_type: str,
         reporter.warning(got.note)
     if not zipfile.is_zipfile(dest):
         raise IOError(f"export {export['id']} download is not a zip package")
-    state.pop(key, None)
-    _save_state(state_path, state)
+    job.clear()
     return dest
 
 
@@ -522,8 +512,7 @@ def export_quiz(canvas: Canvas, req: QuizExportRequest,
             finally:
                 tmp_cc.unlink(missing_ok=True)
 
-    if state_path.exists() and not _load_state(state_path):
-        state_path.unlink()
+    discard_if_empty(state_path)
     for extra in plan.dirs[1:]:
         extra.mkdir(parents=True, exist_ok=True)
         for f in shared:

@@ -152,3 +152,24 @@ def test_a11_selection_then_assigned_in_one_place(fake_canvas):
     a2 = Selection.of(["A2"]).resolve_assigned(c, roster, 100, (7001,))
     assert a2.student_ids == {502, 503} and a2.selected == {502, 503}
     assert Selection().resolve_assigned(c, roster, 100, ()).student_ids is None
+
+
+def test_a12_job_state_is_handled_by_resumable_job(tmp_path):
+    from painter.canvas.jobs import ResumableJob, discard_if_empty
+    assert where(["_save_state", "("]) == {"canvas/jobs.py"}
+    assert where(["_load_state", "("]) == {"canvas/jobs.py"}
+    p = tmp_path / ".state.json"
+    a = ResumableJob(p, "report", {"course_id": 1, "assignment_id": 2})
+    b = ResumableJob(p, "export", {"course_id": 1})
+    assert a.saved() is None
+    a.save(progress_id=5)
+    b.save(export_id=9, created_at="t")
+    assert a.saved() == {"course_id": 1, "assignment_id": 2, "progress_id": 5}
+    assert ResumableJob(p, "report", {"course_id": 1, "assignment_id": 3}).saved() is None
+    a.clear()
+    assert a.saved() is None and b.saved()["export_id"] == 9
+    discard_if_empty(p)
+    assert p.exists()                      # still holds the export
+    b.clear()
+    discard_if_empty(p)
+    assert not p.exists()

@@ -51,3 +51,40 @@ def _load_state(path: Path) -> dict:
 def _save_state(path: Path, state: dict) -> None:
     with atomic_write(path, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(state, indent=2))
+
+
+class ResumableJob:
+    """One Canvas background job's entry in a state file.
+
+    The job ID is saved the moment Canvas returns it, so a rerun after an
+    interruption or timeout resumes that job instead of starting a second
+    one; the entry is cleared once the job's file has been downloaded. Several
+    jobs share one file under different keys. `identity` is what the entry
+    must match to be reused (e.g. the course and assignment).
+    """
+
+    def __init__(self, state_path: Path, key: str, identity: dict):
+        self.path, self.key, self.identity = Path(state_path), key, dict(identity)
+
+    def saved(self) -> dict | None:
+        """The saved entry, if there is one for this identity."""
+        entry = _load_state(self.path).get(self.key)
+        if entry and all(entry.get(k) == v for k, v in self.identity.items()):
+            return entry
+        return None
+
+    def save(self, **fields) -> None:
+        state = _load_state(self.path)
+        state[self.key] = {**self.identity, **fields}
+        _save_state(self.path, state)
+
+    def clear(self) -> None:
+        state = _load_state(self.path)
+        state.pop(self.key, None)
+        _save_state(self.path, state)
+
+
+def discard_if_empty(state_path: Path) -> None:
+    """Remove a state file that no longer holds any job."""
+    if Path(state_path).exists() and not _load_state(state_path):
+        Path(state_path).unlink()

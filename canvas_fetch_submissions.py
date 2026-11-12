@@ -312,7 +312,7 @@ from painter.canvas.client import (  # noqa: F401
     retry_after_seconds,
 )
 from painter.canvas.jobs import (  # noqa: F401
-    POLL_CAP, POLL_FACTOR, POLL_START, _load_state, _save_state, poll_until,
+    POLL_CAP, POLL_FACTOR, POLL_START, ResumableJob, _load_state, _save_state, poll_until,
 )
 from painter.domain.duedates import (  # noqa: F401
     DueDates, fmt_lateness, fmt_ts, parse_ts,
