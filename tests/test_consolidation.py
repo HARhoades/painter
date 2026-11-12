@@ -138,3 +138,17 @@ def test_a10_one_assignment_check(fake_canvas):
     # nothing else fetches a single assignment for a mode
     # grading looks up the assignment each grade file names, a different job
     assert where([".", "assignment", "("]) == {"domain/assignments.py", "services/grading.py"}
+
+
+def test_a11_selection_then_assigned_in_one_place(fake_canvas):
+    from painter.canvas.client import Canvas
+    from painter.domain.roster import Roster
+    from painter.domain.selection import Selection
+    assert where(["assigned_students", "("]) == {"domain/roster.py", "domain/selection.py"}
+    c = Canvas("https://canvas.test", "t")
+    roster = Roster.load(c, 100)
+    everyone = Selection().resolve_assigned(c, roster, 100, (7001,))
+    assert everyone.student_ids == {501, 502, 503} and everyone.selected is None
+    a2 = Selection.of(["A2"]).resolve_assigned(c, roster, 100, (7001,))
+    assert a2.student_ids == {502, 503} and a2.selected == {502, 503}
+    assert Selection().resolve_assigned(c, roster, 100, ()).student_ids is None

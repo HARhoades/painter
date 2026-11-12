@@ -10,7 +10,7 @@ from painter.events import NULL, Reporter, emit
 from painter.domain.assignments import assignment_folder
 from painter.domain.matching import StudentMatcher
 from painter.domain.naming import slug
-from painter.domain.roster import Roster, assigned_students
+from painter.domain.roster import Roster
 
 
 @dataclass
@@ -38,11 +38,9 @@ def quiz_export_plan(canvas: Canvas, course_id: int, out_root: Path, assignment:
     if not (selection.active or by_section):
         return QuizExportPlan([adir])
     roster = Roster.load(canvas, course_id)
-    chosen_ = selection.resolve(roster)
-    emit(chosen_.notes, reporter)
-    student_ids, section_ids = chosen_.student_ids, chosen_.section_ids
-    assigned = assigned_students(canvas, course_id, [assignment["id"]])
-    chosen = assigned if student_ids is None else student_ids & assigned
+    res = selection.resolve_assigned(canvas, roster, course_id, [assignment["id"]])
+    emit(res.notes, reporter)
+    student_ids, section_ids, chosen = res.selected, res.section_ids, res.student_ids
     if student_ids is not None:
         reporter.info(f"{len(chosen)} of {len(student_ids)} selected student(s) are "
               "assigned this quiz.")

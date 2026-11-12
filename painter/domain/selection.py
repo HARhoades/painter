@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from painter.domain.roster import Roster, resolve_sections, resolve_students
+from painter.domain.roster import Roster, assigned_students, resolve_sections, resolve_students
 from painter.errors import InvalidInput
 from painter.events import Note
 
@@ -50,7 +50,27 @@ class Selection:
                 raise
             notes += more
             student_ids |= ids
-        return Resolved(student_ids, section_ids, notes)
+        return Resolved(student_ids, section_ids, notes, selected=student_ids)
+
+    def resolve_assigned(self, canvas, roster: Roster, course_id: int,
+                         assignment_ids) -> "Resolved":
+        """resolve(), then narrowed to students assigned any of assignment_ids.
+
+        With no assignment_ids this is resolve(). With some, student_ids is
+        always a set (everyone assigned, if no filter was given) and
+        .selected keeps the count before narrowing. Notes said so far travel
+        with an InvalidInput for an unknown assignment.
+        """
+        res = self.resolve(roster)
+        if not assignment_ids:
+            return res
+        try:
+            assigned = assigned_students(canvas, course_id, list(assignment_ids))
+        except InvalidInput as exc:
+            exc.notes = res.notes + exc.notes
+            raise
+        res.student_ids = assigned if res.student_ids is None else res.student_ids & assigned
+        return res
 
 
 @dataclass
@@ -58,3 +78,4 @@ class Resolved:
     student_ids: set[int] | None          # None: no filter, everyone
     section_ids: set[int]
     notes: list[Note] = field(default_factory=list)
+    selected: set[int] | None = None      # the filter's choice, before narrowing

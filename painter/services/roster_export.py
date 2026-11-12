@@ -6,7 +6,7 @@ from pathlib import Path
 
 from painter.canvas.client import Canvas
 from painter.domain.roster import (
-    Roster, assigned_students, section_instructors, split_name,
+    Roster, section_instructors, split_name,
 )
 from painter.domain.selection import Selection
 from painter.events import NULL, Reporter, emit
@@ -44,12 +44,10 @@ def export_roster_csv(canvas: Canvas, req: RosterExportRequest,
                       reporter: Reporter = NULL) -> RosterExportResult:
     """One line per student (per section), sorted by last name."""
     roster = Roster.load(canvas, req.course_id)
-    chosen = req.selection.resolve(roster)
+    chosen = req.selection.resolve_assigned(canvas, roster, req.course_id,
+                                            req.assignment_ids)
     emit(chosen.notes, reporter)
     student_ids, section_ids = chosen.student_ids, chosen.section_ids
-    if req.assignment_ids:
-        assigned = assigned_students(canvas, req.course_id, list(req.assignment_ids))
-        student_ids = assigned if student_ids is None else student_ids & assigned
     instructors = section_instructors(canvas, req.course_id)
 
     rows = []

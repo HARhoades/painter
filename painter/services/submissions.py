@@ -9,9 +9,9 @@ from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts, parse_tz
 from painter.domain.naming import attachment_filenames, flat_filename, slug, student_dir_name
-from painter.domain.roster import Roster, assigned_students
+from painter.domain.roster import Roster
 from painter.domain.selection import Selection
-from painter.errors import Cancelled, InvalidInput
+from painter.errors import Cancelled
 from painter.events import NULL, Note, Reporter, emit
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
@@ -84,16 +84,9 @@ def student_listing(canvas: Canvas, course_id: int, roster: Roster,
                     assignment_ids: tuple[int, ...] = ()) -> StudentListing:
     """Same selection rules as a download run: (--section OR --student), then
     narrowed to students who have one of assignment_ids, if given."""
-    chosen = selection.resolve(roster)
+    chosen = selection.resolve_assigned(canvas, roster, course_id, assignment_ids)
     users = [u for u in roster.users.values()
              if chosen.student_ids is None or u["id"] in chosen.student_ids]
-    if assignment_ids:
-        try:
-            assigned = assigned_students(canvas, course_id, list(assignment_ids))
-        except InvalidInput as exc:
-            exc.notes = chosen.notes + exc.notes
-            raise
-        users = [u for u in users if u["id"] in assigned]
     users.sort(key=lambda x: x.get("sortable_name") or "")
     return StudentListing(users, len(roster.users),
                           chosen.student_ids is not None or bool(assignment_ids),
