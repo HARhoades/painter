@@ -29,6 +29,7 @@ python canvas_fetch_submissions.py <command> [options]     (the old script name)
 13. [Exit status](#exit-status)
 14. [Stopping a run, errors, rate limits](#stopping-a-run-errors-rate-limits)
 15. [Old options to new commands](#old-options-to-new-commands)
+16. [The window: painter-gui](#the-window-painter-gui)
 
 ## Setup
 
@@ -460,3 +461,64 @@ The old single command with mode flags was replaced by subcommands in phase 4.
 Everything else (`--assignment`, `--section`, `--student`, `--out`,
 `--by-section`, `--flat`, `--tz`, `--dry-run`, ...) keeps its name, but now
 belongs to the commands that use it.
+
+## The window: painter-gui
+
+The two most common tasks, downloading submissions and posting grades, also
+run in a window. Everything else stays on the command line for now (the
+sidebar lists those tasks as "later").
+
+```
+pip install -e .[gui]
+painter-gui
+```
+
+**Connect.** On first run, give your Canvas address and an access token. Tick
+"Remember on this computer" to keep the token in Windows Credential Manager
+(never in a file); untick and connect again to forget it. If
+`CANVAS_API_TOKEN` is set, the window uses it and says so. The address, the
+last course, folders and download options are remembered in
+`%LOCALAPPDATA%\painter\settings.json`. Settings (top right) comes back here.
+
+**Choose a course.** Courses where you are a teacher or a TA, current term
+first, with a filter by name, term and role. A TA can do whatever their
+Canvas role allows; when Canvas refuses something, the window says so.
+
+**Download submissions.**
+1. Tick assignments. New Quizzes are listed but can't be ticked: their file
+   uploads come via `painter quiz uploads`.
+2. Pick sections (chips), add anyone else by name or ID ("Also include"), and
+   open "Choose individual students" to leave someone out of a chosen section
+   (the same as `--exclude`).
+3. Choose the folder, "A folder per student" or "Flat: one folder", and
+   whether to unpack archives. "More options" has a folder per section,
+   earlier attempts, the Excel log and the time zone.
+
+While you choose, the window counts the files a download would fetch. The
+running screen shows progress, Canvas's rate-limit pauses, every file
+(✓ downloaded, ↺ already here, ✕ failed) and, folded, the same log the
+command line prints. "Stop after this file" stops cleanly: the manifest and
+log are written and running again picks up where it left off. The finished
+screen lists what failed and why, and opens the folder, Excel log and
+manifest.
+
+**Post grades.**
+1. Drop or choose grade files. Each is read at once; a file that can't be
+   read shows the line and the problem, and must be fixed or removed first.
+2. "Check against Canvas" reads only. Review shows one card per file: every
+   student's grade before and after, the comment, and warnings (a grade that
+   will change, a student not in the file's section). Any error blocks
+   posting.
+3. Confirm, and the window posts each file, reads every grade back and shows
+   what Canvas has. A log is saved next to the grade files. For rows that
+   didn't take, "Post again" checks just those students against Canvas again
+   (so a comment that did arrive isn't sent twice) and asks you to confirm.
+
+**One task at a time.** While a download or a post runs, the other task waits.
+Closing the window during a download asks first and then stops cleanly;
+during a post it waits for the file being posted to finish.
+
+**Errors** are shown in words on the screen where they happened. Anything
+unexpected also saves a crash report under `%LOCALAPPDATA%\painter\logs`
+("Copy details" copies its path).
+

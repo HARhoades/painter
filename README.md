@@ -12,6 +12,9 @@ painter list assignments --base-url https://school.instructure.com --course 1234
 painter download --base-url https://school.instructure.com --course 12345 --assignment 67890
 ```
 
+There's also a window for downloading submissions and posting grades:
+`pip install -e .[gui]`, then `painter-gui` (see "The window" in the manual).
+
 Commands: `list`, `download`, `roster`, `organize`, `grades new`, `grades post`,
 `quiz export`, `quiz uploads`. `painter --help` and `painter <command> --help`
 list every option; [docs/manual.md](docs/manual.md) is the full manual, with
@@ -37,17 +40,22 @@ painter/
   config.py   token variable, local app-data folders
   cli/        main.py (subcommands), commands.py (options -> requests),
               console.py (printing reporter, Ctrl+C), exit_codes.py (one table)
+  gui/        the window (PySide6): app.py (main window), session.py, worker.py
+              (TaskRunner), style.py (palette, stylesheet), views/ (one per screen),
+              widgets.py, student_picker.py; fonts/ (OFL)
+  credentials.py  token in the OS credential store (keyring), env var first
+  crash.py    crash reports, shared by the CLI and the window
 canvas_fetch_submissions.py   the old script name; runs the same commands
 docs/manual.md                the manual
 tests/                        pytest suite; a fake Canvas, no network
 ```
 
-Only `cli/` prints, prompts, exits or reads command-line options; a test
-enforces this, and others enforce that each piece of shared logic has one
+Only `cli/` prints, prompts, exits or reads command-line options, and only
+`gui/` imports Qt; tests enforce both, and others enforce that each piece of shared logic has one
 home and no function is over 80 lines. Everything else takes a request
 dataclass, reports through a `Reporter`, returns a result dataclass and raises
 `painter.errors` exceptions, so another front end (a GUI) can call it
-directly:
+directly (painter/gui does exactly this):
 
 ```python
 from pathlib import Path
@@ -81,3 +89,6 @@ caller's job.
 pip install -e .[dev]
 pytest
 ```
+
+The window's tests (tests/gui) need `pip install -e .[gui-test]` and run
+headless with `QT_QPA_PLATFORM=offscreen`; without PySide6 they are skipped.
