@@ -105,8 +105,9 @@ class MainWindow(QMainWindow):
         for key, b in self.nav.items():
             b.setEnabled(not on or key == cur)
             base = {"download": "Download submissions", "grades": "Post grades"}[key]
-            b.setText(f"{base} · running" if on and key == cur else
-                      f"{base} (after this run)" if on else base)
+            busy = {"download": "Downloading…", "grades": "Working on grades…"}[key]
+            b.setText(busy if on and key == cur else f"{base} (later)" if on else base)
+            b.setToolTip("Available after the current task finishes" if on and key != cur else "")
         self.course_btn.setEnabled(not on)
         self.settings_btn.setEnabled(not on)
 

@@ -30,5 +30,10 @@ def all_views():
     """Every screen, in the order they're added to the stack."""
     from painter.gui.views.connect import ConnectView
     from painter.gui.views.home import HomeView
-    from painter.gui.views.placeholder import placeholders
-    return [ConnectView, HomeView, *placeholders()]
+    from painter.gui.views.download_done import DownloadDoneView
+    from painter.gui.views.download_run import DownloadRunView
+    from painter.gui.views.download_setup import DownloadSetupView
+    from painter.gui.views.placeholder import BUILT, placeholders
+    BUILT.add("download_setup")
+    return [ConnectView, HomeView, DownloadSetupView, DownloadRunView, DownloadDoneView,
+            *placeholders()]

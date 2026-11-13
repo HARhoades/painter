@@ -201,6 +201,13 @@ def show_problem(banner: Banner, exc: BaseException, open_settings=None) -> None
         banner.text.setText(f"{pr.body}\nDetails were saved to {pr.details}")
 
 
+def pill_cell(kind: str, text: str) -> QWidget:
+    """A Pill sized to its text, for a table cell."""
+    w = QWidget()
+    w.setLayout(hbox(Pill(kind, text), None, margins=(4, 2, 4, 2)))
+    return w
+
+
 class Pill(QLabel):
     """Status with shape + icon + words: ok, cached, run, bad."""
 
@@ -272,6 +279,7 @@ def scroll_page(widget: QWidget) -> tuple[QScrollArea, QVBoxLayout]:
     area = QScrollArea(widget)
     area.setWidgetResizable(True)
     area.setFrameShape(QFrame.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     inner = QWidget()
     inner.setObjectName("page")
     lay = QVBoxLayout(inner)
