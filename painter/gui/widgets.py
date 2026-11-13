@@ -53,6 +53,8 @@ def hbox(*items, spacing: int = 10, margins=(0, 0, 0, 0)) -> QHBoxLayout:
     for it in items:
         if it is None:
             lay.addStretch(1)
+        elif isinstance(it, QLabel) and it.wordWrap():
+            lay.addWidget(it, 1)
         elif isinstance(it, QLayout):
             lay.addLayout(it)
         else:
@@ -142,8 +144,7 @@ class Banner(QFrame):
         self.icon = QLabel()
         self.icon.setFixedWidth(22)
         self.icon.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-        self.title = label("", wrap=True)
-        self.title.setStyleSheet("font-weight: 600;")
+        self.title = label("", "btitle", wrap=True)
         self.text = label("", wrap=True)
         self.actions = QHBoxLayout()
         self.actions.setSpacing(8)
@@ -227,7 +228,15 @@ def badge(text: str, kind: str = "count") -> QLabel:
     b = QLabel(text)
     b.setObjectName("badge")
     b.setProperty("kind", kind)
+    b.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+    b.setAlignment(Qt.AlignCenter)
     return b
+
+
+def grow(layout, index: int = 0):
+    """Let item `index` of an hbox take the spare width (for wrapped text)."""
+    layout.setStretch(index, 1)
+    return layout
 
 
 class StepBar(QWidget):

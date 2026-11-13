@@ -67,7 +67,7 @@ QLabel#kicker { font-size: 12px; font-weight: 600; color: ${muted}; letter-spaci
 QLabel#muted, QCheckBox#muted { color: ${muted}; font-size: 13px; }
 QLabel#big { font-family: "${heading_font}"; font-size: 40px; font-weight: 700; }
 QFrame#card { background: ${surface}; border: 1px solid ${line}; border-radius: 12px; }
-QFrame#card[accent="secondary"] { border-left: 6px solid ${secondary}; }
+QFrame#card[accent="secondary"] { border: 2px solid ${secondary}; }
 QFrame#card[accent="primary"] { border: 2px solid ${primary}; }
 QFrame#card[accent="ink"] { border: 2px solid ${ink}; }
 QPushButton { min-height: 40px; padding: 0 18px; border-radius: 10px; font-weight: 500;
@@ -116,6 +116,7 @@ QLabel#pill[kind="ok"] { background: ${secondary_tint}; border: 1px solid ${seco
 QLabel#pill[kind="cached"] { background: ${well}; border: 1px solid ${line}; }
 QLabel#pill[kind="run"] { background: ${primary_tint}; border: 1px solid ${primary}; }
 QLabel#pill[kind="bad"] { background: #FFFFFF; border: 2px solid ${ink}; }
+QLabel#btitle { font-weight: 600; }
 QLabel#badge { padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
 QLabel#badge[kind="warn"] { background: ${highlight}; color: ${on_highlight}; }
 QLabel#badge[kind="count"] { background: ${secondary_tint}; border: 1px solid ${secondary}; }
