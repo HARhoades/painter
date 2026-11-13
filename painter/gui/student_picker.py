@@ -3,16 +3,12 @@ a folded list to leave individual students out of the chosen sections."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QCompleter, QGridLayout, QLineEdit, QToolButton, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QCompleter, QLineEdit, QVBoxLayout, QWidget
 
 from painter.domain.matching import StudentMatcher
 from painter.domain.roster import Roster
 from painter.domain.selection import Selection
-from painter.gui.widgets import button, clear, hbox, label
-
-COLUMNS = 4
+from painter.gui.widgets import FlowLayout, FoldButton, button, clear, hbox, label
 
 
 def _short(u: dict) -> str:
@@ -31,10 +27,12 @@ class StudentPicker(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
         self.summary = label("", "muted", wrap=True)
-        lay.addWidget(self.summary)
+        self.all_btn = button("Select all", "link", self._toggle_all,
+                              "Choose every section, or none if all are chosen")
+        self.all_btn.setAccessibleName("Select all sections")
+        lay.addLayout(hbox(self.summary, self.all_btn))
         self.chips_box = QWidget()
-        self.chips = hbox(spacing=8)
-        self.chips_box.setLayout(self.chips)
+        self.chips = FlowLayout(self.chips_box)
         lay.addWidget(self.chips_box)
 
         self.search = QLineEdit()
@@ -47,27 +45,23 @@ class StudentPicker(QWidget):
         self.completer.activated.connect(self._add_choice)
         self.search.setCompleter(self.completer)
         self.search_note = label("", "muted")
-        self.extras = hbox(spacing=8)
+        self.extras_box = QWidget()
+        self.extras = FlowLayout(self.extras_box)
         row = hbox(label("Also include", "muted"), self.search, self.search_note)
         row.setStretch(1, 1)
         lay.addLayout(row)
-        lay.addLayout(self.extras)
+        lay.addWidget(self.extras_box)
 
-        self.fold = QToolButton()
-        self.fold.setCheckable(True)
-        self.fold.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.fold.setArrowType(Qt.RightArrow)
-        self.fold.setStyleSheet("QToolButton { border: 0; font-weight: 600; }")
+        self.fold = FoldButton()
         self.fold.toggled.connect(self._toggle_fold)
         lay.addWidget(self.fold)
         self.people_box = QWidget()
-        self.people = QGridLayout(self.people_box)
+        self.people = FlowLayout(self.people_box, spacing=6)
         self.people.setContentsMargins(18, 0, 0, 0)
-        self.people.setSpacing(6)
         self.people_box.setVisible(False)
         lay.addWidget(self.people_box)
         self.fold_note = label("Click a name to leave it out; left-out names are struck "
-                               "through and marked ✕.", "muted")
+                               "through and marked ✕.", "muted", wrap=True)
         self.fold_note.setVisible(False)
         lay.addWidget(self.fold_note)
         self.section_buttons: dict[int, object] = {}
@@ -90,7 +84,26 @@ class StudentPicker(QWidget):
             b._label = f"{s.get('name')}  ({n})"
             self.section_buttons[s["id"]] = b
             self.chips.addWidget(b)
-        self.chips.addStretch(1)
+        self._sections_changed()
+
+    def update_roster(self, roster: Roster) -> int:
+        """Swap in a newer roster, keeping the sections chosen, students added
+        by name and students left out. Returns how many of those no longer exist."""
+        chosen, extra, excluded = set(self.chosen_sections()), list(self.extra), set(self.excluded)
+        self.set_roster(roster, chosen)
+        inside = self.in_sections()
+        self.extra = [u for u in extra if u in roster.users and u not in inside]
+        self.excluded = {u for u in excluded if u in inside}
+        self._sections_changed()
+        return (len(chosen) - len(self.chosen_sections())) + (len(extra) - len(self.extra))
+
+    def _toggle_all(self):
+        """Choose every section; when all are chosen already, clear them."""
+        want = not all(b.isChecked() for b in self.section_buttons.values())
+        for b in self.section_buttons.values():
+            b.blockSignals(True)
+            b.setChecked(want)
+            b.blockSignals(False)
         self._sections_changed()
 
     def chosen_sections(self) -> list[int]:
@@ -115,6 +128,10 @@ class StudentPicker(QWidget):
     def _sections_changed(self, *_):
         for b in self.section_buttons.values():
             b.setText(("✓ " if b.isChecked() else "+ ") + b._label)
+        everyone = bool(self.section_buttons) and all(
+            b.isChecked() for b in self.section_buttons.values())
+        self.all_btn.setText("Clear all" if everyone else "Select all")
+        self.all_btn.setEnabled(bool(self.section_buttons))
         inside = self.in_sections()
         self.extra = [u for u in self.extra if u not in inside]
         self._refresh_completer()
@@ -172,22 +189,23 @@ class StudentPicker(QWidget):
                        lambda _=False, x=uid: self._remove(x), "Remove")
             b.setAccessibleName(f"Remove {_short(u)}")
             self.extras.addWidget(b)
-        self.extras.addStretch(1)
+        self.extras_box.setVisible(bool(self.extra))
 
     def _refresh_people(self):
         clear(self.people)
         inside = sorted(self.in_sections(), key=lambda u: _short(self.roster.users[u]))
         self.excluded &= set(inside)
-        for i, uid in enumerate(inside):
+        for uid in inside:
             u = self.roster.users[uid]
             b = button("", "name")
             b.setCheckable(True)
             b.setChecked(uid in self.excluded)
             b.toggled.connect(lambda on, x=uid, btn=b: self._exclude(x, on, btn))
             self._name_text(b, u, uid in self.excluded)
-            self.people.addWidget(b, i // COLUMNS, i % COLUMNS)
-        names = ", ".join(self.roster.section_by_id[s].get("name", "")
-                          for s in self.chosen_sections())
+            self.people.addWidget(b)
+        chosen = self.chosen_sections()
+        names = (", ".join(self.roster.section_by_id[s].get("name", "") for s in chosen)
+                 if len(chosen) <= 3 else f"{len(chosen)} sections")
         left = len(self.excluded)
         self.fold.setText(f"Choose individual students in {names}" +
                           (f"  ·  {left} left out" if left else "  ·  everyone is in")
@@ -208,7 +226,6 @@ class StudentPicker(QWidget):
         self._emit()
 
     def _toggle_fold(self, on: bool):
-        self.fold.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
         self.people_box.setVisible(on)
         self.fold_note.setVisible(on)
 

@@ -12,6 +12,12 @@ from painter.errors import (
 )
 
 
+def short_reason(exc: BaseException) -> str:
+    """One short line for a tag or tooltip; unlike describe(), writes nothing."""
+    first = (str(exc).strip().splitlines() or [""])[0]
+    return (first or type(exc).__name__)[:140]
+
+
 @dataclass
 class Problem:
     title: str

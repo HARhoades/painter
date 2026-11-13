@@ -22,9 +22,14 @@ class CourseInfo:
     students: int | None
 
 
-def whoami(canvas: Canvas) -> str:
+def identify(canvas: Canvas) -> tuple[int | None, str]:
+    """(Canvas user id, display name) of whoever the token belongs to."""
     me = canvas.self_user()
-    return me.get("short_name") or me.get("name") or str(me.get("id", ""))
+    return me.get("id"), me.get("short_name") or me.get("name") or str(me.get("id", ""))
+
+
+def whoami(canvas: Canvas) -> str:
+    return identify(canvas)[1]
 
 
 def _current(term: dict, now: datetime) -> bool:

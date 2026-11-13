@@ -46,3 +46,9 @@ grade_post_log_*.csv
 organize_log_*.csv
 manifest.csv
 .coverage
+
+# Student data and local caches: never commit (anchored to the repo root).
+# Downloaded submissions (the default download folder), and the cache of
+# course lists, assignments, rosters and file counts (see the phase 6 plan).
+/submissions/
+/.painter-cache/

@@ -128,3 +128,60 @@ def test_stop_shows_what_was_done(window, setup, qtbot, monkeypatch):
         gate.set()
     done = window.views["download_done"]
     assert done.h1.text() == "Stopped: 1 file downloaded before you stopped"
+
+
+def test_setup_fits_a_narrow_window(window, setup, qtbot):
+    """Section chips and names wrap; nothing forces the page wider than the window."""
+    from PySide6.QtWidgets import QBoxLayout
+    v = setup
+    v.picker.section_buttons[11].setChecked(True)
+    v.picker.section_buttons[12].setChecked(True)
+    v.picker.fold.setChecked(True)
+    window.resize(1000, 800)
+    window.show()
+    qtbot.waitExposed(window)
+    assert v.cols.direction() == QBoxLayout.TopToBottom          # view is under 900 px
+    inner = v.area.widget()
+    assert inner.minimumSizeHint().width() <= v.area.viewport().width()
+    for layout in (v.picker.chips, v.picker.people):
+        assert layout.minimumSize().width() < 400
+    window.resize(1500, 900)
+    qtbot.wait(50)
+    assert v.cols.direction() == QBoxLayout.LeftToRight
+
+
+def test_one_bordered_bar_fills_with_progress(window, setup, qtbot, monkeypatch):
+    """One overall bar (a border, filled by percent) plus a small per-student bar."""
+    from painter.events import Stage, StudentStart
+    from painter.gui.views.download_run import PERMILLE, overall_fraction
+
+    def fake_download(canvas, req, reporter):
+        reporter.event(Stage("Downloading A", total=4, step=1, steps=1))
+        reporter.event(StudentStart("Doe, Jane", 2, 1, 2))
+        for n in (1, 2):
+            reporter.event(ItemDone("file", f"f{n}.pdf", "downloaded", "Doe, Jane"))
+        return DownloadResult([], 0, [])
+    monkeypatch.setattr("painter.gui.views.download_run.download_submissions", fake_download)
+    run = window.views["download_run"]
+    with qtbot.waitSignal(window.runner.finished, timeout=5000):
+        window.go("download_run", request=setup.request(), expected=4)
+    qtbot.wait(50)
+    assert run.student_bar.maximum() == 2 and run.student_bar.value() == 2
+    assert run.student_text.text().startswith("Doe, Jane") and "2 of 2 files" in run.student_text.text()
+    assert run.overall.value() == PERMILLE // 2 and run.overall.format() == "%p%"
+    assert run.big.text() == "2" and run.of.text() == "of about 4 files"
+    # the estimate grows when Canvas has more than counted; stage-only when no count
+    assert overall_fraction(6, 0, 8, 4, 1, 1, 6) == (0.75, 8)
+    assert overall_fraction(3, 0, 4, None, 2, 4, 3) == (0.4375, None)
+
+
+def test_folder_per_section_is_a_layout_option_on_by_default(setup):
+    v = setup
+    assert v.by_section.isChecked() and v.by_section.parent() is v.flat.parent()
+    assert v.layout_preview.text() == "Assignment › Section › Student › files"
+    v.flat.setChecked(True)
+    assert v.layout_preview.text().startswith("Assignment › Section › files")
+    v.by_section.setChecked(False)
+    assert v.layout_preview.text().startswith("Assignment › files")
+    assert not v.request().by_section and v.request().flat
+    assert all(w is not v.by_section for w in v.more_box.findChildren(type(v.by_section)))

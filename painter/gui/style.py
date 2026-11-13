@@ -28,6 +28,8 @@ class Palette:
     muted: str = "#5E574C"
     field_border: str = "#A89C85"
     well: str = "#E9DDC6"
+    primary_hover: str = "#EDB335"  # marigold a shade darker, for hover
+    secondary_hover: str = "#D3DCC6"  # sage tint a shade darker, for hover
 
 
 PAINTER = Palette()
@@ -59,7 +61,15 @@ QPushButton#nav { text-align: left; min-height: 0; padding: 10px 12px; border: 0
   background: transparent; font-weight: 500; }
 QPushButton#nav:hover { background: ${primary_tint}; }
 QPushButton#nav:checked { background: ${primary}; color: ${on_primary}; font-weight: 600; ${brush} }
+QPushButton#nav:checked:hover { background: ${primary_hover}; }
 QPushButton#nav:disabled { color: ${muted}; }
+QPushButton#settings:checked { background: ${primary}; color: ${on_primary}; border: 2px solid ${ink};
+  font-weight: 600; ${brush} }
+QPushButton#settings:checked:hover { background: ${primary_hover}; }
+QListWidget#courses { background: ${surface}; }
+QListWidget#courses::item { border: 0; border-bottom: 1px solid ${line}; }
+QListWidget#courses::item:hover { background: ${background}; }
+QListWidget#courses::item:selected { background: ${primary_tint}; color: ${ink}; }
 QLabel#later { color: ${muted}; padding: 6px 12px; }
 QLabel#h1 { font-family: "${heading_font}"; font-size: 28px; font-weight: 700; }
 QLabel#h2 { font-size: 16px; font-weight: 600; }
@@ -72,33 +82,70 @@ QFrame#card[accent="primary"] { border: 2px solid ${primary}; }
 QFrame#card[accent="ink"] { border: 2px solid ${ink}; }
 QPushButton { min-height: 40px; padding: 0 18px; border-radius: 10px; font-weight: 500;
   background: transparent; border: 1px solid ${field_border}; }
-QPushButton:hover { background: ${surface}; }
+QPushButton:hover { background: ${well}; }
 QPushButton[role="primary"] { background: ${primary}; color: ${on_primary}; border: 0;
   font-weight: 600; padding: 0 24px; ${brush} }
-QPushButton[role="primary"]:hover { border: 2px solid ${ink}; }
+QPushButton[role="primary"]:hover { background: ${primary_hover}; border: 2px solid ${ink}; }
 QPushButton[role="secondary"] { background: ${surface}; border: 2px solid ${secondary}; font-weight: 600; }
 QPushButton[role="secondary"]:hover { background: ${secondary_tint}; }
 QPushButton[role="link"] { border: 0; min-height: 0; padding: 0; text-decoration: underline; }
+QPushButton[role="link"]:hover { background: transparent; color: ${highlight}; }
+QPushButton[role="icon"] { min-height: 24px; max-height: 24px; min-width: 24px; padding: 0 6px;
+  border-radius: 12px; border: 1px solid ${field_border}; font-size: 13px; font-weight: 600; }
+QPushButton[role="icon"]:disabled { color: ${muted}; border-color: ${line}; }
+QLabel#tag { font-size: 12px; color: ${muted}; }
+QLabel#tag[kind="checking"] { font-style: italic; }
+QLabel#tag[kind="failed"] { color: ${ink}; font-weight: 600; }
 QPushButton:focus { outline: none; border: 2px solid ${ink}; }
 QPushButton[role="chip"] { min-height: 32px; padding: 0 14px; border-radius: 16px;
   border: 1px solid ${line}; background: #FFFFFF; }
+QPushButton[role="chip"]:hover { background: ${secondary_tint}; }
+QPushButton[role="chip"]:checked:hover { background: ${secondary_hover}; }
 QPushButton[role="chip"]:checked { border: 2px solid ${secondary}; background: ${secondary_tint}; ${brush} }
 QPushButton[role="name"] { min-height: 28px; padding: 0 10px; border-radius: 14px;
   border: 1px solid ${secondary}; background: ${secondary_tint}; font-weight: 400; }
+QPushButton[role="name"]:hover { background: ${secondary_hover}; }
+QPushButton[role="name"]:checked:hover { background: ${surface}; }
 QPushButton[role="name"]:checked { border: 2px solid ${ink}; background: #FFFFFF; color: ${muted};
   text-decoration: line-through; }
-QLineEdit, QComboBox { min-height: 38px; padding: 0 10px; border: 1px solid ${field_border};
+QLineEdit, QComboBox, QDateEdit { min-height: 38px; padding: 0 10px; border: 1px solid ${field_border};
   border-radius: 10px; background: #FFFFFF; }
-QLineEdit:focus, QComboBox:focus { border: 2px solid ${ink}; }
+QComboBox, QDateEdit { padding: 0 38px 0 10px; }
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QComboBox:on { border: 2px solid ${ink}; }
+QDateEdit QLineEdit { border: 0; background: transparent; min-height: 0; padding: 0; }
+QComboBox::drop-down, QDateEdit::drop-down { subcontrol-origin: border; subcontrol-position: center right;
+  width: 34px; border: 0; border-left: 1px solid ${line}; background: transparent;
+  border-top-right-radius: 9px; border-bottom-right-radius: 9px; }
+QComboBox::drop-down:hover, QDateEdit::drop-down:hover { background: ${primary_tint}; }
+QComboBox::down-arrow, QDateEdit::down-arrow { image: url("${chevron_down}"); width: 14px; height: 14px; }
+QComboBox QAbstractItemView { background: ${surface}; border: 1px solid ${field_border}; border-radius: 6px;
+  padding: 4px; outline: 0; selection-background-color: ${primary_tint}; selection-color: ${ink}; }
+QComboBox QAbstractItemView::item { min-height: 30px; padding: 0 8px; border-radius: 6px; }
+QToolButton#fold { border: 0; background: transparent; font-weight: 600; padding: 4px 2px; }
+QToolButton#fold:hover { text-decoration: underline; }
+QToolButton#fold:disabled { color: ${muted}; }
+QCalendarWidget QWidget#qt_calendar_navigationbar { background: ${surface}; }
+QCalendarWidget QToolButton { background: transparent; border: 0; border-radius: 6px; padding: 4px 8px; min-height: 0; }
+QCalendarWidget QToolButton:hover { background: ${primary_tint}; }
+QCalendarWidget QToolButton#qt_calendar_prevmonth { qproperty-icon: url("${chevron_left}"); }
+QCalendarWidget QToolButton#qt_calendar_nextmonth { qproperty-icon: url("${chevron_right}"); }
+QCalendarWidget QToolButton::menu-indicator { image: url("${chevron_down}"); width: 12px; height: 12px;
+  subcontrol-position: right center; subcontrol-origin: padding; }
+QCalendarWidget QAbstractItemView:enabled { background: ${surface}; color: ${ink};
+  selection-background-color: ${primary}; selection-color: ${ink}; }
+QCalendarWidget QAbstractItemView:disabled { color: ${muted}; }
 QCheckBox, QRadioButton { spacing: 10px; }
 QCheckBox::indicator, QRadioButton::indicator { width: 18px; height: 18px; border: 2px solid #7A705F; background: #FFFFFF; }
 QCheckBox::indicator { border-radius: 5px; }
 QRadioButton::indicator { border-radius: 11px; }
 QCheckBox::indicator:checked { background: ${primary}; border-color: ${ink}; image: url("${check_icon}"); }
 QRadioButton::indicator:checked { background: ${primary}; border: 5px solid ${ink}; }
-QProgressBar { background: ${well}; border: 0; border-radius: 7px; height: 14px; text-align: center; }
-QProgressBar::chunk { background: ${primary}; border-radius: 7px; }
-QProgressBar#overall::chunk { background: ${secondary}; }
+QProgressBar { background: ${surface}; border: 2px solid ${ink}; border-radius: 12px; min-height: 22px;
+  max-height: 22px; text-align: center; font-weight: 600; color: ${ink}; }
+QProgressBar::chunk { background: ${primary}; border-radius: 8px; margin: 1px; }
+QProgressBar#student { background: ${well}; border: 1px solid ${secondary}; border-radius: 5px;
+  min-height: 8px; max-height: 8px; }
+QProgressBar#student::chunk { background: ${secondary}; border-radius: 4px; margin: 0; }
 QTableWidget, QTreeWidget, QListWidget { background: #FFFFFF; border: 1px solid ${line}; border-radius: 10px;
   gridline-color: ${line}; alternate-background-color: ${surface}; }
 QTableWidget::item:selected, QListWidget::item:selected { background: ${primary_tint}; color: ${ink}; }
@@ -141,7 +188,10 @@ def build_qss(p: Palette = PAINTER) -> str:
     QFrame#banner[kind=...], QLabel#pill[kind=...], QLabel#step[state=...]."""
     return QSS.substitute(asdict(p), brush=BRUSH, body_font=BODY_FONT,
                           heading_font=HEADING_FONT,
-                          check_icon=(ICONS / "check.svg").as_posix())
+                          check_icon=(ICONS / "check.svg").as_posix(),
+                          chevron_down=(ICONS / "chevron-down.svg").as_posix(),
+                          chevron_left=(ICONS / "chevron-left.svg").as_posix(),
+                          chevron_right=(ICONS / "chevron-right.svg").as_posix())
 
 
 def contrast(fg: str, bg: str) -> float:

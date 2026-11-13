@@ -86,3 +86,47 @@ def test_settings_never_hold_a_token(tmp_path):
     s = Settings(extra={"token": "abc"})
     with pytest.raises(ValueError):
         save_settings(s, tmp_path / "settings.json")
+
+
+def test_several_saved_tokens_with_names_and_dates(memory_keyring):
+    a = credentials.save_token("https://school.test/", "aaaa-1111", "Fall", "2027-01-15")
+    b = credentials.save_token("https://school.test", "bbbb-2222", "Spring")
+    assert [t.label for t in credentials.list_saved()] == ["Fall", "Spring"]
+    assert credentials.get_saved(a.id) == "aaaa-1111" and credentials.get_saved(b.id) == "bbbb-2222"
+    assert a.hint == "1111" and a.base_url == "https://school.test"
+    # the index never holds a token
+    index = memory_keyring.store[("painter", credentials.INDEX)]
+    assert "aaaa-1111" not in index and "bbbb-2222" not in index
+    # saving the same token again updates it instead of adding another
+    again = credentials.save_token("https://school.test", "aaaa-1111", "Fall term")
+    assert again.id == a.id and len(credentials.list_saved()) == 2
+    credentials.remove_saved(a.id)
+    credentials.remove_saved(a.id)                         # already gone: fine
+    assert [t.id for t in credentials.list_saved()] == [b.id]
+    assert credentials.get_saved(a.id) is None
+
+
+def test_expiry_warning_window():
+    from datetime import date
+    t = credentials.SavedToken("x", "https://s.test", "Fall", "2026-11-20", "1234")
+    assert t.days_left(date(2026, 11, 13)) == 7 and t.expiring(date(2026, 11, 13))
+    assert not t.expiring(date(2026, 11, 12))
+    assert t.expiring(date(2026, 11, 25))                  # expired counts too
+    assert "⚠ expired" in t.title(date(2026, 11, 25))
+    assert "expires Nov 20, 2026" in t.title(date(2026, 10, 1))
+    assert not credentials.SavedToken("y", "https://s.test").expiring()
+
+
+def test_legacy_token_moves_into_the_list(memory_keyring):
+    credentials.set_token("https://school.test", "legacy-9999")
+    moved = credentials.migrate_legacy("https://school.test")
+    assert moved.label == "Saved token" and credentials.get_saved(moved.id) == "legacy-9999"
+    assert credentials.get_token("https://school.test", env={}) == (None, None)
+    assert credentials.migrate_legacy("https://school.test") is None
+
+
+def test_saving_needs_a_store(monkeypatch):
+    monkeypatch.setattr(credentials, "_keyring", lambda: None)
+    assert credentials.list_saved() == []
+    with pytest.raises(MissingDependency):
+        credentials.save_token("https://school.test", "abc")

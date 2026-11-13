@@ -4,13 +4,33 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QHeaderView, QPlainTextEdit, QProgressBar, QTableWidget,
-    QTableWidgetItem, QToolButton,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from painter.events import ItemDone, Stage, Waiting
+from painter.events import ItemDone, Stage, StudentStart, Waiting
 from painter.gui.views import View
-from painter.gui.widgets import Banner, Card, button, heading, hbox, label, pill_cell
+from painter.gui.widgets import (
+    Banner, Card, FoldButton, button, heading, hbox, label, pill_cell,
+)
 from painter.services.submissions import download_submissions
+
+
+PERMILLE = 1000          # the overall bar counts in thousandths, so it fills smoothly
+
+
+def overall_fraction(done: int, prior: int, stage_total: int, expected: int | None,
+                     step: int, steps: int, stage_done: int) -> tuple[float, int | None]:
+    """(how far along, estimated total files) for the whole download.
+
+    With a count from the setup screen the bar goes by files, and the estimate
+    grows if Canvas turns out to have more. Without one it goes by stage."""
+    if expected:
+        total = max(expected, prior + stage_total, done)
+        return min(done / total, 1.0), total
+    if steps:
+        inner = stage_done / stage_total if stage_total else 1.0
+        return min(((step - 1) + inner) / steps, 1.0), None
+    return 0.0, None
 
 
 def pill_for(status: str) -> tuple[str, str]:
@@ -35,23 +55,34 @@ class DownloadRunView(View):
         self.page.addWidget(head)
         top = Card(padding=20)
         self.big = label("0", "big")
-        self.of = label("of 0 files", "muted")
-        self.bar = QProgressBar()
-        self.bar.setTextVisible(False)
+        self.of = label("of … files", "muted")
+        count = QWidget()
+        cv = QVBoxLayout(count)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        cv.addWidget(self.big)
+        cv.addWidget(self.of)
         self.overall = QProgressBar()
         self.overall.setObjectName("overall")
-        self.overall.setTextVisible(False)
-        self.overall.setFixedHeight(6)
+        self.overall.setRange(0, PERMILLE)
+        self.overall.setFormat("%p%")
+        self.overall.setAccessibleName("Download progress")
         self.overall_text = label("", "muted")
+        self.student_bar = QProgressBar()
+        self.student_bar.setObjectName("student")
+        self.student_bar.setTextVisible(False)
+        self.student_bar.setAccessibleName("Progress through this student's files")
+        self.student_text = label("", "muted")
         self.stop_btn = button("■  Stop after this file", "secondary", self.stop)
-        bars = Card(padding=0)
-        bars.setObjectName("plain")
-        bars.setStyleSheet("background: transparent; border: 0;")
-        bars.body.addWidget(self.bar)
-        bars.body.addWidget(self.overall)
-        bars.body.addWidget(self.overall_text)
-        row = hbox(self.big, self.of, bars, self.stop_btn, spacing=20)
-        row.setStretch(2, 1)
+        bars = QWidget()
+        bv = QVBoxLayout(bars)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(4)
+        for w in (self.overall, self.overall_text, self.student_bar, self.student_text):
+            bv.addWidget(w)
+        bv.setSpacing(6)
+        row = hbox(count, bars, self.stop_btn, spacing=24)
+        row.setStretch(1, 1)
         top.body.addLayout(row)
         self.page.addWidget(top)
         self.wait = Banner()
@@ -74,11 +105,7 @@ class DownloadRunView(View):
         files.body.addWidget(self.table)
         self.page.addWidget(files)
 
-        self.log_btn = QToolButton()
-        self.log_btn.setCheckable(True)
-        self.log_btn.setArrowType(Qt.RightArrow)
-        self.log_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.log_btn.setStyleSheet("QToolButton { border: 0; font-weight: 600; }")
+        self.log_btn = FoldButton()
         self.log_btn.toggled.connect(self._toggle_log)
         self.log = QPlainTextEdit()
         self.log.setObjectName("log")
@@ -105,17 +132,20 @@ class DownloadRunView(View):
         if request is None:
             return
         self.request, self.expected = request, expected
-        self.done_total = 0
+        self.done_total = self.prior = self.stage_done = self.stage_total = 0
+        self.step, self.steps, self.stage_name = 1, 1, ""
+        self.student_done = 0
+        self.student_on = False
         self.counts = {"ok": 0, "cached": 0, "bad": 0}
         self.table.setRowCount(0)
         self.log.clear()
         self.wait.set("info")
-        self.big.setText("0")
-        self.of.setText("of … files")
-        self.bar.setValue(0)
-        self.overall.setRange(0, expected or 0)
         self.overall.setValue(0)
         self.overall_text.setText("")
+        self.student_bar.setRange(0, 1)
+        self.student_bar.setValue(0)
+        self._show_student(False)
+        self._show_totals()
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("■  Stop after this file")
         self._update_counts()
@@ -134,12 +164,11 @@ class DownloadRunView(View):
             self._log_label()
 
     def _progress(self, done, total, _label):
+        """Progress inside the current assignment (a Stage event starts each one)."""
         if not self._mine():
             return
-        self.big.setText(str(done))
-        self.of.setText(f"of {total} file{'s' * (total != 1)}")
-        self.bar.setRange(0, max(total, 1))
-        self.bar.setValue(done)
+        self.stage_done, self.stage_total = done, total
+        self._show_totals()
         self.wait.set("info")
 
     def _event(self, e):
@@ -147,8 +176,19 @@ class DownloadRunView(View):
             return
         if isinstance(e, Stage):
             self.h1.setText(e.name)
+            self.stage_name, self.stage_total, self.stage_done = e.name, e.total or 0, 0
+            self.prior = self.done_total
+            self.step, self.steps = e.step or 1, e.steps or 1
             if self.kicker is not None:
                 self.kicker.setText(f"STEP {e.step} OF {e.steps}" if e.step else "DOWNLOAD")
+            self._show_totals()
+        elif isinstance(e, StudentStart):
+            self.student_done = 0
+            self.student_bar.setRange(0, max(e.files, 1))
+            self.student_bar.setValue(0)
+            self.student_name, self.student_files = e.name, e.files
+            self.student_pos = f"student {e.index} of {e.total}" if e.total else ""
+            self._show_student(True)
         elif isinstance(e, Waiting):
             secs = f"; retrying in {e.seconds:.0f} s" if e.seconds else ""
             self.wait.set("attention", "", f"{e.reason}{secs}. Nothing is wrong; Painter "
@@ -156,15 +196,38 @@ class DownloadRunView(View):
         elif isinstance(e, ItemDone) and e.kind == "file":
             self._add_row(e)
 
+    def _show_student(self, on: bool):
+        self.student_on = on
+        self.student_bar.setVisible(on)
+        self.student_text.setVisible(on)
+        if on:
+            self._student_text()
+
+    def _student_text(self):
+        n, files = self.student_done, self.student_files
+        bits = [self.student_name, f"file {min(n + (n < files), files)} of {files}"
+                if n < files else f"{files} of {files} files", self.student_pos]
+        self.student_text.setText("  ·  ".join(b for b in bits if b))
+
+    def _show_totals(self):
+        """The big count, the single overall bar and its caption."""
+        frac, total = overall_fraction(self.done_total, self.prior, self.stage_total,
+                                       self.expected, self.step, self.steps, self.stage_done)
+        self.overall.setValue(int(frac * PERMILLE))
+        self.big.setText(str(self.done_total))
+        self.of.setText(f"of about {total} files" if total else "files so far")
+        stage = f"assignment {self.step} of {self.steps}" if self.steps > 1 else ""
+        self.overall_text.setText("  ·  ".join(x for x in (stage, self.stage_name) if x))
+
     def _add_row(self, e: ItemDone):
         kind, text = pill_for(e.status)
         self.counts[kind] += 1
         self.done_total += 1
-        self.overall.setValue(min(self.done_total, self.overall.maximum() or self.done_total))
-        if self.expected and self.done_total <= self.expected:
-            self.overall_text.setText(f"Overall: {self.done_total} of about {self.expected}")
-        else:
-            self.overall_text.setText(f"Overall: {self.done_total} so far")
+        if self.student_on:
+            self.student_done += 1
+            self.student_bar.setValue(min(self.student_done, self.student_bar.maximum()))
+            self._student_text()
+        self._show_totals()
         r = 0                                # newest first
         self.table.insertRow(r)
         self.table.setItem(r, 0, QTableWidgetItem(e.detail))
@@ -185,7 +248,6 @@ class DownloadRunView(View):
             self.table.setRowHidden(r, on and self.table.item(r, 1).data(Qt.UserRole) != "bad")
 
     def _toggle_log(self, on):
-        self.log_btn.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
         self.log.setVisible(on)
 
     def _log_label(self):

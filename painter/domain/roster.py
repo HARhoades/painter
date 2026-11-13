@@ -71,6 +71,32 @@ class Roster:
         """Sections and student enrollments of a course: two paginated calls."""
         return cls(canvas.sections(course_id), canvas.student_enrollments(course_id))
 
+    # The fields of a student the window uses; everything else is left out.
+    USER_FIELDS = ("id", "name", "sortable_name", "short_name", "login_id", "sis_user_id")
+
+    def to_data(self) -> dict:
+        """Plain data for the local cache (see storage/cache.py)."""
+        return {"sections": self.sections,
+                "users": {str(u): {k: v for k, v in user.items() if k in self.USER_FIELDS}
+                          for u, user in self.users.items()},
+                "sections_of_user": {str(u): s for u, s in self.sections_of_user.items()}}
+
+    @classmethod
+    def from_data(cls, data: dict) -> "Roster":
+        """Rebuild what to_data wrote; raises KeyError/TypeError/ValueError if damaged."""
+        enrollments = []
+        for uid, user in data["users"].items():
+            uid = int(uid)
+            sids = data["sections_of_user"].get(str(uid)) or [None]
+            for sid in sids:
+                enr = {"user_id": uid, "user": dict(user)}
+                if sid is not None:
+                    enr["course_section_id"] = sid
+                if user.get("sis_user_id"):
+                    enr["sis_user_id"] = user["sis_user_id"]
+                enrollments.append(enr)
+        return cls(list(data["sections"]), enrollments)
+
     def section_names(self, user_id: int) -> list[str]:
         return [self.section_by_id.get(s, {}).get("name", str(s))
                 for s in self.sections_of_user.get(user_id, [])]

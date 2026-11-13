@@ -3,14 +3,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QSizePolicy, QToolButton, QVBoxLayout, QWidget, QWidgetItem,
 )
 
-from painter.gui.style import PAINTER
+from painter.domain.freshness import Freshness, describe
+from painter.gui.style import ICONS as ICON_DIR, PAINTER
 
 ICONS = {"ok": "✓", "attention": "⚠", "info": "ⓘ", "error": "✕",
          "cached": "↺", "run": "●", "bad": "✕"}
@@ -60,6 +61,128 @@ def hbox(*items, spacing: int = 10, margins=(0, 0, 0, 0)) -> QHBoxLayout:
         else:
             lay.addWidget(it)
     return lay
+
+
+class FoldButton(QToolButton):
+    """A heading that opens and closes a section, with the app's own chevron
+    (right when closed, down when open) instead of the system's arrow."""
+
+    def __init__(self, text: str = ""):
+        super().__init__()
+        self.setObjectName("fold")
+        self.setText(text)
+        self.setCheckable(True)
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.setIconSize(QSize(14, 14))
+        self.setCursor(Qt.PointingHandCursor)
+        self.toggled.connect(self._chevron)
+        self._chevron(False)
+
+    def _chevron(self, open_: bool) -> None:
+        name = "chevron-down.svg" if open_ else "chevron-right.svg"
+        self.setIcon(QIcon(str(ICON_DIR / name)))
+
+
+class FreshnessTag(QWidget):
+    """Says how old a shown value is ("✓ Up to date · checked 2 min ago"), with
+    a small ↻ button to ask Canvas again now."""
+    refresh_requested = Signal()
+
+    def __init__(self, tip: str = "Check with Canvas now", with_button: bool = True):
+        super().__init__()
+        self.text = label("", "tag")
+        self.button = button("↻", "icon", self.refresh_requested.emit, tip)
+        self.button.setAccessibleName(tip)
+        self.button.setVisible(with_button)
+        self.setLayout(hbox(self.text, self.button, None, spacing=6))
+        self.state = Freshness("none")
+        self._clock = QTimer(self)                 # keeps "2 min ago" honest
+        self._clock.setInterval(30_000)
+        self._clock.timeout.connect(self._show)
+        self._clock.start()
+        self._show()
+
+    def set(self, f: Freshness | None) -> None:
+        """None hides the tag (nothing to say yet)."""
+        self.setVisible(f is not None)
+        if f is None:
+            return
+        self.state = f
+        self.button.setEnabled(f.state != "checking")
+        self._show()
+
+    def _show(self) -> None:
+        self.text.setText(describe(self.state))
+        self.text.setToolTip(self.state.reason)
+        restyle(self.text, kind=self.state.state)
+
+
+class FlowLayout(QLayout):
+    """Lays widgets out left to right and wraps onto new lines to fit the width,
+    so a row of chips or names never makes the page wider than the window."""
+
+    def __init__(self, parent=None, spacing: int = 8):
+        super().__init__(parent)
+        self._items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self._gap = spacing
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def addWidget(self, w):                       # noqa: N802 - Qt naming
+        self.addChildWidget(w)
+        self.addItem(QWidgetItem(w))
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, i):                          # noqa: N802
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):                          # noqa: N802
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self):                # noqa: N802
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):                  # noqa: N802
+        return True
+
+    def heightForWidth(self, width):              # noqa: N802
+        return self._place(QRect(0, 0, width, 0), move=False)
+
+    def setGeometry(self, rect):                  # noqa: N802
+        super().setGeometry(rect)
+        self._place(rect, move=True)
+
+    def sizeHint(self):                           # noqa: N802
+        return self.minimumSize()
+
+    def minimumSize(self):                        # noqa: N802
+        size = QSize()
+        for it in self._items:
+            if not it.isEmpty():
+                size = size.expandedTo(it.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _place(self, rect, move: bool) -> int:
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        x, y, line = area.x(), area.y(), 0
+        for it in self._items:
+            if it.isEmpty():
+                continue
+            hint = it.sizeHint()
+            w = min(hint.width(), area.width()) if area.width() > 0 else hint.width()
+            if x > area.x() and x + w > area.right() + 1:
+                x, y, line = area.x(), y + line + self._gap, 0
+            if move:
+                it.setGeometry(QRect(QPoint(x, y), QSize(w, hint.height())))
+            x += w + self._gap
+            line = max(line, hint.height())
+        return y + line - rect.y() + m.bottom()
 
 
 class Card(QFrame):

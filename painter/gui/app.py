@@ -60,7 +60,10 @@ class MainWindow(QMainWindow):
         brand = label("Painter", "brand")
         self.course_btn = button("", "", lambda: self.go("home"), "Change course")
         self.host = label("", "muted")
-        self.settings_btn = button("Settings", "", self.open_settings)
+        self.settings_btn = button("⚙  Settings", "", self.open_settings, "Open settings")
+        self.settings_btn.setObjectName("settings")
+        self.settings_btn.setCheckable(True)
+        self.settings_btn.setAccessibleName("Settings")
         bar.setLayout(hbox(Logo(), brand, self.course_btn, None, self.host, self.settings_btn,
                            spacing=14, margins=(20, 0, 20, 0)))
         return bar
@@ -132,10 +135,25 @@ class MainWindow(QMainWindow):
         for key, b in self.nav.items():
             b.setChecked(key == view.section)
         self.nav_group.setExclusive(True)
+        self._settings_state(view.name == "connect")
+
+    def _settings_state(self, on: bool):
+        """The Settings button reads as pressed while Settings is showing."""
+        self.settings_btn.setChecked(on)
+        back = on and self.session.canvas is not None
+        self.settings_btn.setText("✕  Close settings" if back else "⚙  Settings")
+        self.settings_btn.setToolTip("Back to your courses" if back else
+                                     "You're in Settings" if on else "Open settings")
 
     def open_settings(self):
-        if not self.runner.running:
+        if self.runner.running:
+            pass
+        elif self.current is self.views["connect"]:
+            if self.session.canvas is not None:
+                self.go("home")                  # the button closes Settings
+        else:
             self.go("connect")
+        self._settings_state(self.current is self.views["connect"])
 
     # ---- closing during a run ----
     def closeEvent(self, ev):

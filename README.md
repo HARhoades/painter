@@ -43,7 +43,7 @@ painter/
   gui/        the window (PySide6): app.py (main window), session.py, worker.py
               (TaskRunner), style.py (palette, stylesheet), views/ (one per screen),
               widgets.py, student_picker.py; fonts/ (OFL)
-  credentials.py  token in the OS credential store (keyring), env var first
+  credentials.py  saved tokens in the OS credential store (keyring)
   crash.py    crash reports, shared by the CLI and the window
 canvas_fetch_submissions.py   the old script name; runs the same commands
 docs/manual.md                the manual

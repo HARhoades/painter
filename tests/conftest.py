@@ -271,22 +271,44 @@ class MemoryStore:
     """Stands in for painter.credentials in window tests."""
 
     def __init__(self, available=True):
-        self.tokens, self.available = {}, available
+        self.tokens, self.available = {}, available     # legacy: one per host
+        self.saved, self.secrets = [], {}
 
     def keyring_available(self):
         return self.available
 
-    def get_token(self, base_url, env=None):
-        if (env or {}).get("CANVAS_API_TOKEN"):
-            return env["CANVAS_API_TOKEN"], "env"
-        t = self.tokens.get(base_url.rstrip("/"))
-        return (t, "keyring") if t else (None, None)
+    def env_token(self, env=None):
+        return (env or {}).get("CANVAS_API_TOKEN") or None
+
+    def list_saved(self):
+        return list(self.saved)
+
+    def get_saved(self, token_id):
+        return self.secrets.get(token_id)
+
+    def save_token(self, base_url, token, label="", expires="", token_id=None):
+        from painter.credentials import SavedToken
+        if token_id is None:
+            token_id = next((t.id for t in self.saved if self.secrets[t.id] == token
+                             and t.base_url == base_url.rstrip("/")), None) \
+                or f"t{len(self.secrets) + 1}"
+        entry = SavedToken(token_id, base_url.rstrip("/"), label, expires, token[-4:])
+        self.secrets[token_id] = token
+        self.saved = [entry if t.id == token_id else t for t in self.saved]
+        if entry not in self.saved:
+            self.saved.append(entry)
+        return entry
+
+    def remove_saved(self, token_id):
+        self.secrets.pop(token_id, None)
+        self.saved = [t for t in self.saved if t.id != token_id]
+
+    def migrate_legacy(self, base_url):
+        t = self.tokens.pop(base_url.rstrip("/"), None)
+        return self.save_token(base_url, t, "Saved token") if t else None
 
     def set_token(self, base_url, token):
         self.tokens[base_url.rstrip("/")] = token
-
-    def clear_token(self, base_url):
-        self.tokens.pop(base_url.rstrip("/"), None)
 
 
 @pytest.fixture

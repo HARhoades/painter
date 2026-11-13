@@ -12,7 +12,9 @@ from painter.domain.naming import attachment_filenames, flat_filename, slug, stu
 from painter.domain.roster import Roster
 from painter.domain.selection import Selection
 from painter.errors import Cancelled
-from painter.events import NULL, ItemDone, Note, Reporter, Stage, emit, watches_canvas
+from painter.events import (
+    NULL, ItemDone, Note, Reporter, Stage, StudentStart, emit, watches_canvas,
+)
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
 from painter.storage.tabular import read_records, write_csv
@@ -151,6 +153,62 @@ def count_files(canvas: Canvas, course_id: int, assignment_ids: tuple[int, ...],
     return result
 
 
+@dataclass
+class AssignmentFiles:
+    """Who submitted to one assignment and how many files each has, kept per
+    student so any choice of students can be totalled without asking Canvas.
+    Only counts and ids: no scores, grades or comments."""
+    submitted: set[int]                   # students with a submission
+    files: dict[int, int]                 # student id -> files (latest attempt)
+    files_history: dict[int, int]         # student id -> files incl. earlier attempts
+
+
+def assignment_files(canvas: Canvas, course_id: int, assignment_id: int) -> AssignmentFiles:
+    """One read of an assignment's submissions, reduced to AssignmentFiles."""
+    out = AssignmentFiles(set(), {}, {})
+    for sub in canvas.submissions(course_id, assignment_id, True):
+        uid = sub.get("user_id")
+        if uid is None or sub.get("workflow_state") == "unsubmitted":
+            continue
+        out.submitted.add(uid)
+        for table, history in ((out.files, False), (out.files_history, True)):
+            n = len(collect_attachments(sub, history))
+            if n:
+                table[uid] = n
+    return out
+
+
+@watches_canvas()
+def file_counts(canvas: Canvas, course_id: int, assignment_ids: tuple[int, ...],
+                reporter: Reporter = NULL) -> dict[int, AssignmentFiles]:
+    """assignment_files for each id; reads only. Stops between assignments when
+    cancelled (Cancelled carries what was read so far)."""
+    result: dict[int, AssignmentFiles] = {}
+    for n, aid in enumerate(assignment_ids, start=1):
+        if reporter.cancelled():
+            raise Cancelled("stopped counting", result)
+        result[aid] = assignment_files(canvas, course_id, aid)
+        reporter.progress(n, len(assignment_ids), str(aid))
+    return result
+
+
+def count_from(known: dict[int, AssignmentFiles], assignment_ids: tuple[int, ...],
+               student_ids: set[int] | None, history: bool = False) -> FileCount:
+    """The same answer as count_files, worked out from what is already known.
+    Assignments not in `known` are left out; student_ids None means everyone."""
+    result = FileCount({}, None if student_ids is None else len(student_ids))
+    for aid in assignment_ids:
+        data = known.get(aid)
+        if data is None:
+            continue
+        table = data.files_history if history else data.files
+        pick = (lambda u: True) if student_ids is None else (lambda u: u in student_ids)
+        result.per_assignment[aid] = AssignmentCount(
+            sum(1 for u in data.submitted if pick(u)),
+            sum(n for u, n in table.items() if pick(u)))
+    return result
+
+
 # --------------------------------------------------------------------------
 # Downloading submission files
 # --------------------------------------------------------------------------
@@ -280,7 +338,9 @@ def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int)
                          step=step, steps=steps))
     reporter.progress(0, run.stage_total, assign["name"])
 
-    for sub, attachments in todo:
+    for n, (sub, attachments) in enumerate(todo, start=1):
+        who = (sub.get("user") or {}).get("sortable_name") or str(sub.get("user_id"))
+        reporter.event(StudentStart(who, len(attachments), n, len(todo)))
         _download_submission(run, assign, adir, due, sub, attachments)
         if run.stopped:
             return

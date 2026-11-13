@@ -473,12 +473,18 @@ pip install -e .[gui]
 painter-gui
 ```
 
-**Connect.** On first run, give your Canvas address and an access token. Tick
-"Remember on this computer" to keep the token in Windows Credential Manager
-(never in a file); untick and connect again to forget it. If
-`CANVAS_API_TOKEN` is set, the window uses it and says so. The address, the
-last course, folders and download options are remembered in
-`%LOCALAPPDATA%\painter\settings.json`. Settings (top right) comes back here.
+**Connect (Settings).** On first run, give your Canvas address and an access
+token. Tick "Remember on this computer" to keep the token in Windows
+Credential Manager (never in a file). You can save several tokens, each with
+an optional name and expiration date; pick one from "Saved tokens", and use
+Remove to forget an expired or invalid one. A saved token that has expired,
+or expires within 7 days, shows a warning when you pick it. If
+`CANVAS_API_TOKEN` is set, it is offered in the same list; you can still pick
+a saved token or type a new one. The address, the last course, the token
+last used (by its id, not the token), folders and download options are
+remembered in `%LOCALAPPDATA%\painter\settings.json`. Settings (top right)
+comes back here; the button is highlighted while you are on this page, and
+pressing it again ("Close settings") returns to your courses.
 
 **Choose a course.** Courses where you are a teacher or a TA, current term
 first, with a filter by name, term and role. A TA can do whatever their
@@ -490,17 +496,51 @@ Canvas role allows; when Canvas refuses something, the window says so.
 2. Pick sections (chips), add anyone else by name or ID ("Also include"), and
    open "Choose individual students" to leave someone out of a chosen section
    (the same as `--exclude`).
-3. Choose the folder, "A folder per student" or "Flat: one folder", and
-   whether to unpack archives. "More options" has a folder per section,
-   earlier attempts, the Excel log and the time zone.
+3. Choose the folder and the layout: "A folder per student" or "Flat: one
+   folder", plus "A folder per section" (on by default; a line under it shows
+   the result, such as Assignment › Section › Student › files). Choose
+   whether to unpack archives. "More options" has earlier attempts, the Excel
+   log and the time zone. The default folder is `submissions/` inside the
+   Painter folder, which `.gitignore` keeps out of git; the window warns if
+   you pick a folder inside the Painter folder that git would not ignore.
+
+"Select all" above the section chips chooses every section at once (it
+becomes "Clear all" when every section is chosen).
 
 While you choose, the window counts the files a download would fetch. The
-running screen shows progress, Canvas's rate-limit pauses, every file
+running screen shows one progress bar for the whole download, filled by the
+percent of files done, and a thinner bar under it for the student being
+downloaded (their files done out of the files they submitted). It also shows
+Canvas's rate-limit pauses, every file
 (✓ downloaded, ↺ already here, ✕ failed) and, folded, the same log the
 command line prints. "Stop after this file" stops cleanly: the manifest and
 log are written and running again picks up where it left off. The finished
 screen lists what failed and why, and opens the folder, Excel log and
 manifest.
+
+**Saved course data.** So screens open at once, Painter keeps the last
+assignment list, roster and per-student file counts for each course on this
+computer, and shows them straight away. A small tag by each says how old it
+is: "✓ Up to date · checked 2 min ago", or "⟳ From 3 days ago · checking…"
+while Painter asks Canvas in the background (the list updates in place; what
+you ticked stays ticked), or "● From … · not checked yet", or "⚠ Couldn't
+confirm" if Canvas could not be reached. A value is rechecked automatically
+when it is older than 10 minutes (assignments and file counts) or 1 day
+(rosters). The small ↻ button beside a tag checks with Canvas right now.
+Changing which sections or students are chosen never asks Canvas again; the
+counts are worked out from what is already saved. The course list on the
+Choose-a-course page has the same tag (1 hour) and its own Refresh link.
+
+The files live in `.painter-cache/` inside the Painter folder (or in
+`%LOCALAPPDATA%\painter\cache` if Painter is installed elsewhere), one
+folder per kind: `assignments/`, `rosters/` (student names and IDs, kept apart
+from everything else) and `filecounts/`. They are in `.gitignore`, as is
+`submissions/`. Grades and grade comments are never saved: they are asked for
+each time and forgotten when Painter closes. Settings has "Clear saved course
+data" to delete these files; downloaded submissions are not touched.
+
+**Buttons** that use the beige colouring lighten or darken slightly when the
+pointer is over them.
 
 **Post grades.**
 1. Drop or choose grade files. Each is read at once; a file that can't be

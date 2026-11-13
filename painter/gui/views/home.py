@@ -1,14 +1,20 @@
 """Screen 2: choose a course, then a task."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from datetime import datetime, timezone
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
 )
 
+from painter.domain.freshness import classify
+from painter.gui.problems import short_reason
 from painter.services.courses import list_courses
 from painter.gui.views import View
-from painter.gui.widgets import Banner, badge, button, heading, hbox, label, show_problem
+from painter.gui.widgets import (
+    Banner, FreshnessTag, badge, button, heading, hbox, label, show_problem,
+)
 from painter.gui.worker import TaskRunner
 
 
@@ -41,8 +47,7 @@ class HomeView(View):
 
     def __init__(self, win):
         super().__init__(win)
-        head, _, self.sub = heading("Choose a course",
-                                    "Courses you teach or assist in. Painter remembers the last one.")
+        head, _, self.sub = heading("Choose a course")
         self.page.addWidget(head)
         self.filter = QLineEdit()
         self.filter.setPlaceholderText("Filter courses")
@@ -56,12 +61,14 @@ class HomeView(View):
             cb.toggled.connect(self.refill)
         self.filter.textChanged.connect(self.refill)
         self.refresh_btn = button("Refresh", "link", self.refresh)
+        self.tag = FreshnessTag(with_button=False)       # the Refresh link is its button
         self.page.addLayout(hbox(self.filter, self.current, self.teacher, self.ta, None,
-                                 self.refresh_btn, spacing=16))
+                                 self.tag, self.refresh_btn, spacing=16))
         self.list = QListWidget()
+        self.list.setObjectName("courses")
         self.list.setAccessibleName("Courses")
         self.list.setMinimumHeight(240)
-        self.list.setSpacing(3)
+        self.list.setSpacing(0)
         self.list.currentItemChanged.connect(self._picked)
         self.page.addWidget(self.list)
         self.empty = label("", "muted", wrap=True)
@@ -78,16 +85,24 @@ class HomeView(View):
             b.setMinimumHeight(64)
             b.setToolTip(tip)
         self.page.addLayout(hbox(self.dl, self.gr, spacing=16))
-        self.page.addWidget(label("As a TA, Painter shows only what your Canvas role allows; a "
-                                  "task Canvas refuses says so in plain words.", "muted", wrap=True))
         self.page.addStretch(1)
         self.lookup = TaskRunner(self)
         self.lookup.finished.connect(self._refreshed)
-        self.lookup.failed.connect(lambda e: show_problem(self.banner, e, self.win.open_settings))
+        self.lookup.failed.connect(self._refresh_failed)
         self._filling = False
+        self._error = ""
+        self.tag_clock = QTimer(self)
+        self.tag_clock.setInterval(30_000)
+        self.tag_clock.timeout.connect(self._tags)
+        self.tag_clock.start()
 
     def enter(self, **kw):
         self.refill()
+        self._tags()
+
+    def _tags(self):
+        self.tag.set(classify("courses", self.session.courses_at, self.lookup.running,
+                              self._error) if self.session.canvas else None)
 
     def visible_courses(self):
         text = self.filter.text().strip().lower()
@@ -137,8 +152,37 @@ class HomeView(View):
 
     def refresh(self):
         if self.session.canvas and not self.lookup.running:
+            self.refresh_btn.setEnabled(False)
+            self.refresh_btn.setText("Refreshing…")
+            self._error = ""
+            self.banner.clear_actions()
+            self.banner.set("info", "Refreshing the course list…",
+                            "Asking Canvas for the courses you teach or assist in.")
             self.lookup.start(list_courses, self.session.canvas)
+            self._tags()
+
+    def _refresh_done(self):
+        self.refresh_btn.setEnabled(True)
+        self.refresh_btn.setText("Refresh")
+        self._tags()
 
     def _refreshed(self, courses):
+        before = {c.id for c in self.session.courses}
         self.session.courses = courses
+        self.session.courses_at = datetime.now(timezone.utc)
+        self._refresh_done()
         self.refill()
+        added = len({c.id for c in courses} - before)
+        gone = len(before - {c.id for c in courses})
+        change = ("No changes since the last check." if not (added or gone) else
+                  ", ".join(x for x in (f"{added} new" if added else "",
+                                        f"{gone} no longer listed" if gone else "") if x) + ".")
+        n = len(courses)
+        self.banner.set("ok", "Course list refreshed",
+                        f"Canvas lists {n} course{'s' * (n != 1)} where you teach or assist. "
+                        + change)
+
+    def _refresh_failed(self, exc):
+        self._error = short_reason(exc)
+        self._refresh_done()
+        show_problem(self.banner, exc, self.win.open_settings)

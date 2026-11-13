@@ -19,6 +19,8 @@ Events:
   Stage(name, total, step, steps)   a stage starts: "Downloading DATE Scenario",
                                     with how many items it has, and which of
                                     how many stages it is
+  StudentStart(name, files, ...)    a student's files begin: how many they have, and
+                                    which student this is of how many
   ItemDone(kind, key, status, ...)  one file / grade / folder / upload / student
                                     finished; status as in the logs
   Waiting(reason, seconds, percent) a pause: rate limit, retry, a Canvas job
@@ -48,6 +50,14 @@ class Stage:
 
 
 @dataclass(frozen=True)
+class StudentStart:
+    name: str
+    files: int                         # files this student's submission has
+    index: int = 0                     # this student's number in the stage ...
+    total: int = 0                     # ... of how many students with files
+
+
+@dataclass(frozen=True)
 class ItemDone:
     kind: str                          # "file", "grade", "folder", "upload", "student"
     key: str                           # what it is: file name, student, folder
@@ -68,7 +78,7 @@ class ActionNeeded:
     message: str
 
 
-Event = Union[Stage, ItemDone, Waiting, ActionNeeded]
+Event = Union[Stage, StudentStart, ItemDone, Waiting, ActionNeeded]
 
 
 # ---- reporters -----------------------------------------------------------------

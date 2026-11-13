@@ -24,3 +24,16 @@ def test_text_pairs_pass_wcag_aa():
 def test_bundled_fonts_load(painter_qapp):
     fams = load_fonts()
     assert "Work Sans" in fams and any("Bricolage" in f for f in fams)
+
+
+def test_combo_boxes_use_the_app_chevron_and_stay_white(painter_qapp):
+    from PySide6.QtWidgets import QComboBox
+    from painter.gui.style import ICONS
+    qss = build_qss()
+    assert "chevron-down.svg" in qss and (ICONS / "chevron-down.svg").exists()
+    box = QComboBox()
+    box.addItems(["one", "two"])
+    box.show()
+    img = box.grab().toImage()
+    assert img.pixel(5, img.height() // 2) & 0xFFFFFF == 0xFFFFFF      # not tinted at rest
+    box.close()
