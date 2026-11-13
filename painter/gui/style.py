@@ -6,6 +6,7 @@ from pathlib import Path
 from string import Template
 
 FONTS = Path(__file__).resolve().parent / "fonts"
+ICONS = Path(__file__).resolve().parent / "icons"
 HEADING_FONT = "Bricolage Grotesque"
 BODY_FONT = "Work Sans"
 
@@ -54,7 +55,7 @@ QWidget#topbar { background: ${surface}; border-bottom: 1px solid ${line}; }
 QLabel#brand { font-family: "${heading_font}"; font-size: 20px; font-weight: 700; }
 QWidget#sidebar { background: ${surface}; border-right: 1px solid ${line}; }
 QLabel#navhead { font-size: 11px; font-weight: 600; color: ${muted}; letter-spacing: 1px; }
-QPushButton#nav { text-align: left; padding: 10px 12px; border: 0; border-radius: 8px;
+QPushButton#nav { text-align: left; min-height: 0; padding: 10px 12px; border: 0; border-radius: 8px;
   background: transparent; font-weight: 500; }
 QPushButton#nav:hover { background: ${primary_tint}; }
 QPushButton#nav:checked { background: ${primary}; color: ${on_primary}; font-weight: 600; ${brush} }
@@ -93,7 +94,7 @@ QCheckBox, QRadioButton { spacing: 10px; }
 QCheckBox::indicator, QRadioButton::indicator { width: 18px; height: 18px; border: 2px solid #7A705F; background: #FFFFFF; }
 QCheckBox::indicator { border-radius: 5px; }
 QRadioButton::indicator { border-radius: 11px; }
-QCheckBox::indicator:checked { background: ${primary}; border-color: ${ink}; }
+QCheckBox::indicator:checked { background: ${primary}; border-color: ${ink}; image: url("${check_icon}"); }
 QRadioButton::indicator:checked { background: ${primary}; border: 5px solid ${ink}; }
 QProgressBar { background: ${well}; border: 0; border-radius: 7px; height: 14px; text-align: center; }
 QProgressBar::chunk { background: ${primary}; border-radius: 7px; }
@@ -105,7 +106,7 @@ QHeaderView::section { background: ${surface}; border: 0; border-bottom: 1px sol
   padding: 6px 8px; font-size: 12px; font-weight: 600; color: ${muted}; }
 QPlainTextEdit#log { background: #FFFFFF; border: 1px solid ${line}; border-radius: 10px;
   font-family: "Cascadia Mono", "Consolas", monospace; font-size: 12px; }
-QFrame#banner { border-radius: 12px; padding: 4px; }
+QFrame#banner { border-radius: 12px; }
 QFrame#banner[kind="attention"] { background: ${highlight_tint}; border: 2px solid ${highlight}; }
 QFrame#banner[kind="info"] { background: ${secondary_tint}; border: 1px solid ${secondary}; }
 QFrame#banner[kind="ok"] { background: ${primary_tint}; border: 1px solid ${primary}; }
@@ -138,7 +139,8 @@ def build_qss(p: Palette = PAINTER) -> str:
     QLabel#h1/#h2/#kicker/#muted/#big, QFrame#card[accent=...],
     QFrame#banner[kind=...], QLabel#pill[kind=...], QLabel#step[state=...]."""
     return QSS.substitute(asdict(p), brush=BRUSH, body_font=BODY_FONT,
-                          heading_font=HEADING_FONT)
+                          heading_font=HEADING_FONT,
+                          check_icon=(ICONS / "check.svg").as_posix())
 
 
 def contrast(fg: str, bg: str) -> float:

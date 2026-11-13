@@ -31,7 +31,7 @@ py-modules = ["canvas_fetch_submissions"]
 include = ["painter*"]
 
 [tool.setuptools.package-data]
-"painter.gui" = ["fonts/*.ttf", "fonts/*.txt"]
+"painter.gui" = ["fonts/*.ttf", "fonts/*.txt", "icons/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

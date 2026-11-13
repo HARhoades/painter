@@ -265,3 +265,48 @@ def painter_qapp(qapp):
         qapp.setStyleSheet(build_qss())
         qapp._painter_styled = True
     return qapp
+
+
+class MemoryStore:
+    """Stands in for painter.credentials in window tests."""
+
+    def __init__(self, available=True):
+        self.tokens, self.available = {}, available
+
+    def keyring_available(self):
+        return self.available
+
+    def get_token(self, base_url, env=None):
+        if (env or {}).get("CANVAS_API_TOKEN"):
+            return env["CANVAS_API_TOKEN"], "env"
+        t = self.tokens.get(base_url.rstrip("/"))
+        return (t, "keyring") if t else (None, None)
+
+    def set_token(self, base_url, token):
+        self.tokens[base_url.rstrip("/")] = token
+
+    def clear_token(self, base_url):
+        self.tokens.pop(base_url.rstrip("/"), None)
+
+
+@pytest.fixture
+def window(painter_qapp, courses, tmp_path, qtbot):
+    """A main window on the fake Canvas, not yet connected; no env token."""
+    from painter.gui.app import MainWindow
+    from painter.gui.session import Session
+    store = MemoryStore()
+    win = MainWindow(Session(tmp_path / "settings.json", env={}, store=store))
+    win.store = store
+    qtbot.addWidget(win)
+    return win
+
+
+def connect_window(win, qtbot):
+    """Fill in Connect and continue; returns once Home is showing."""
+    v = win.views["connect"]
+    v.url.setText(BASE)
+    v.token.setText("test-token")
+    with qtbot.waitSignal(v.lookup.finished, timeout=5000):
+        v.proceed()
+    assert win.current is win.views["home"]
+    return win

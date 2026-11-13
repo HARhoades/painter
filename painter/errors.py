@@ -86,3 +86,10 @@ def error_for_status(resp: requests.Response) -> CanvasHTTPError | None:
                else CanvasUnavailable if code >= 500 else CanvasHTTPError)
         return cls(str(exc), response=resp, request=getattr(resp, "request", None))
     return None
+
+
+def is_connection_error(exc: BaseException) -> bool:
+    """Canvas couldn't be reached at all (no network, DNS, TLS, timeout).
+
+    For front ends that don't import requests themselves."""
+    return isinstance(exc, (requests.ConnectionError, requests.Timeout))
