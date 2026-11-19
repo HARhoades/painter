@@ -141,7 +141,8 @@ def grades_new(args, parser) -> int:
         course_id=args.course, out_dir=Path(args.dir),
         section_specs=tuple(args.section or ()),
         assignment_ids=(args.assignment,) if args.assignment else (),
-        label=args.label, ay=args.ay, term=args.term, force=args.force)
+        label=args.label, ay=args.ay, term=args.term, force=args.force,
+        prefix_style=args.prefix, include_term=args.include_term)
     with CONSOLE.stoppable():
         make_grade_files(canvas, req, CONSOLE)
     return exit_codes.OK

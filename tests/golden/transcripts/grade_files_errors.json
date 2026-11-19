@@ -43,7 +43,8 @@
    "stdout": [],
    "stderr": [
     "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                          [--assignment ID] [--section SPEC] [--label NAME] [--ay YY] [--term N]",
+    "                          [--assignment ID] [--section SPEC] [--label NAME]",
+    "                          [--prefix {short,full,instructor}] [--ay YY] [--term N] [--no-term]",
     "                          [--dir DIR] [--force]",
     "painter grades new: error: --assignment can be given only once"
    ],
@@ -95,7 +96,7 @@
     "No --section given: writing a file for every section in the course."
    ],
    "stderr": [
-    "Could not read an academic year and semester from the course term name 'Fall'. Pass --ay and --term, e.g. --ay 27 --term 1."
+    "Could not read an academic year and semester from the course term name 'Fall'. Pass --ay and --term, e.g. --ay 27 --term 1, or leave them out of the names with --no-term."
    ],
    "requests": [
     "GET /api/v1/courses/100/sections {\"include[]\": [\"total_students\"], \"per_page\": [100]}",

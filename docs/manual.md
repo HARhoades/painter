@@ -225,26 +225,50 @@ matching several students, is left in place and reported. Each run writes
 
 ```
 painter grades new --base-url URL --course 12345 [--assignment ID] [--section SPEC ...]
-                   [--label NAME] [--ay YY] [--term N] [--dir DIR] [--force]
+                   [--label NAME] [--prefix short|full|instructor]
+                   [--ay YY] [--term N] [--no-term] [--dir DIR] [--force]
 ```
 
 Writes one grade file per section (default: every section), with each
-student's name and Canvas ID filled in:
-`<Section><Number>-<LABEL>_Grading-<AY>-<SEMESTER>.txt`, e.g.
-`A1-DATE_Grading-27-1.txt` for section "A1-8".
+student's name and Canvas ID filled in.
+
+### File names
+
+A grade file is named `<prefix>-<base>[-<AY>-<semester>].txt`:
+
+| Part | What it is | Example for section "A1-8", assignment "DATE Scenario", AY27-1 |
+|---|---|---|
+| prefix | always there; from the section (`--prefix`) | `A1` (short, the default), `A1-8` (full), `A1-Rhoades` (instructor) |
+| base | the assignment name, or what `--label` gives | `DATE-Scenario` |
+| AY and semester | optional; left out with `--no-term` | `-27-1` |
+
+So the default is `A1-DATE-Scenario-27-1.txt`; with `--prefix full --no-term`
+it is `A1-8-DATE-Scenario.txt`. Names are made safe for Windows: characters
+such as `: / ? *` are dropped, spaces become `-`, and the base is cut to 40
+characters. The instructor prefix uses the section's teacher's surname (a TA
+only where there is no teacher), and just the short prefix when a section has
+neither.
+
+Names never clash. When two sections reduce to the same prefix (A2-8 and A2-9
+are both "A2"), the second uses its full section name (and its section ID if
+even that is taken); names that differ only in capitals count as the same,
+as they do on Windows.
 
 | Option | Meaning |
 |---|---|
 | `--assignment ID` | fills in the assignment's title and id; without it they are left blank |
 | `--section SPEC` | only these sections (repeatable) |
-| `--label NAME` | the assignment part of the file name (default: first word of the assignment name; required without `--assignment`) |
+| `--label NAME`, `--base NAME` | the base of the file name (default: the assignment name; required without `--assignment`) |
+| `--prefix STYLE` | the section part of the file name: `short` (default), `full` or `instructor` |
 | `--ay YY`, `--term N` | academic year and semester (default: read from the course's term name) |
+| `--no-term` | leave the academic year and semester out of the file names (`--ay`/`--term` are then not needed) |
 | `--dir DIR` | where to write the files (default: current folder) |
 | `--force` | overwrite existing files |
 
-`instructor=` is the section's teacher (TAs only where there is no teacher).
-Two sections whose names start the same (A2-8, A2-9) don't overwrite each
-other: the second keeps its full section name.
+`instructor=` in the file is the section's teacher (TAs only where there is
+no teacher). An existing file is never overwritten without `--force`. What a
+file is for comes from its contents, not its name, so renaming a grade file
+never changes what is posted.
 
 ## painter grades post
 
@@ -486,6 +510,13 @@ remembered in `%LOCALAPPDATA%\painter\settings.json`. Settings (top right)
 comes back here; the button is highlighted while you are on this page, and
 pressing it again ("Close settings") returns to your courses.
 
+Settings › **Grade files** holds the defaults for naming new grade files (the
+prefix, and whether the academic year and semester are added) for courses
+where you haven't chosen yet in Make grade files, and "Ask before saving
+changes to a grade file" (on at first). Two greyed-out boxes, the due date and
+points possible in the preview, are placeholders for later; the preview
+doesn't ask Canvas for anything today.
+
 **Choose a course.** Courses where you are a teacher or a TA, current term
 first, with a filter by name, term and role. A TA can do whatever their
 Canvas role allows; when Canvas refuses something, the window says so.
@@ -567,12 +598,25 @@ pointer is over them.
 **Make grade files.** Tick one or more assignments and one or more sections
 (each list has "Select all"), and Painter writes one blank file per section
 for each assignment, with every student's name and Canvas ID filled in. The
-same "Instructor" filter narrows the sections. The academic year and
-semester go into the file names (A1-DATE_Grading-27-1.txt): Painter fills
-them from the course's term name (as the command line does), and when the
-name doesn't say (e.g. "Fall 2026") they must be typed in, like
-`--ay 27 --term 1`, before files can be made. What you type is remembered for
-that course. By
+same "Instructor" filter narrows the sections.
+
+File names follow the rules in [File names](#file-names), set in box 3:
+- **File name** (a column in the assignment list) is the base, filled in with
+  the assignment's name. Double-click it to change it for one assignment;
+  clear it to go back to the name. It is cleaned for disk as you type.
+- **Starts with** picks the prefix: the short section (A1), the full section
+  name (A1-8), or the section and instructor (A1-Rhoades). A prefix is always
+  there.
+- **Add the academic year and semester** puts `-27-1` on the end. Painter
+  fills them from the course's term name (as the command line does); when the
+  name doesn't say (e.g. "Fall 2026") type them in, like `--ay 27 --term 1`,
+  or untick the box.
+- **These files will be made** lists the exact names before anything is
+  written, including any section that had to use its full name to avoid a
+  clash.
+
+All of these are remembered for each course. A course you haven't set yet
+starts from the defaults in Settings › Grade files. By
 default they go in `grade-files/<course code>/` inside the Painter folder, which
 `.gitignore` keeps out of git because filled-in files hold grades (outside a
 checkout: `Documents\Painter\grade-files`). A file already there is kept
@@ -580,20 +624,52 @@ unless you tick "Replace files that already exist", so grades you have typed
 in are never overwritten. "Saved to" takes any folder (Browse…); Painter
 remembers it for that course, warns if it is inside the Painter folder where
 git could commit it, and Post grades lists the files there too. "Use
-Painter's grade-files folder" goes back to the default. When two chosen assignments start with the same
-word, more of the name goes into the file name so they don't collide. This
-is the window's version of `painter grades new`.
+Painter's grade-files folder" goes back to the default. Two chosen
+assignments never get the same base: the later one gets its assignment ID
+added. This is the window's version of `painter grades new`.
 
 **Post grades.**
 1. Tick files under "Saved grade files" (the grade-files folder, this
    course first, each showing how many students are filled in), or drop or
    choose grade files kept elsewhere. Each is read at once; a file that can't be
    read shows the line and the problem, and must be fixed or removed first.
-2. "Check against Canvas" reads only. Review shows one card per file: every
+   When two of the chosen files are for the same assignment and section, a
+   warning names them: both would be posted, the later file's grades
+   replacing the earlier's. Remove the one you don't mean.
+2. **Preview and edit** shows each file as it is saved, without asking
+   Canvas: its assignment and section (with IDs), instructor, folder, when it
+   was last changed and its size, then one card per student with name, Canvas
+   ID, grade and comment. A student with no grade and no comment is shaded
+   raspberry and marked "No grade or comment"; a card you have changed turns
+   marigold until it is saved. With one file the cards are open; with several,
+   "Show N students" opens each.
+   - Type a new grade or comment straight into a card. Simple checks show on
+     the card (e.g. "9o mixes digits and letters"); Review checks the grade
+     properly against Canvas.
+   - **Save changes to file…** asks first, then rewrites only those students'
+     `grade=` and `comments=` lines; every other line of the file stays
+     exactly as it was. "Undo changes" puts the saved values back. Settings ›
+     Grade files › "Ask before saving changes to a grade file" turns the
+     question off.
+   - A comment line that the file would read as something else is refused
+     with the reason: one that starts with `name=`, `id=`, `grade=` or
+     `comments=`, or one that is a block header such as `[STUDENT]`. Reword
+     it (e.g. "Your grade= …" is fine).
+   - If another program (Notepad, OneDrive) changed the file after Painter
+     read it, saving asks: reload it from disk (your changes here are
+     dropped), or write your changes into it (its other changes are kept,
+     except these students' grades and comments).
+   - Leaving the screen, Back, or "Check against Canvas" with unsaved changes
+     asks to save them, discard them, or stay; with the question turned off
+     they are saved. Saving is written all the way to disk before Painter
+     reads the files again for Review, so **what is posted is always what is
+     saved in the files.**
+3. "Check against Canvas" reads only. Review shows one card per file: every
    student's grade before and after, the comment, and warnings (a grade that
    will change, a student not in the file's section). Any error blocks
-   posting.
-3. Confirm, and the window posts each file, reads every grade back and shows
+   posting. Back returns to Preview and edit, which shows any file changed
+   on disk in the meantime.
+4. Confirm, and the window posts each file, reads every grade back and shows
    what Canvas has. A log is saved next to the grade files. For rows that
    didn't take, "Post again" checks just those students against Canvas again
    (so a comment that did arrive isn't sent twice) and asks you to confirm.

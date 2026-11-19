@@ -126,12 +126,19 @@ class MainWindow(QMainWindow):
 
     def go(self, name: str, **kw):
         view = self.views[name]
+        if self.current is not None and self.current is not view \
+                and not self.current.unsaved_ok():
+            self._mark_nav(self.current)               # stay: undo the sidebar's tick
+            return
         if name not in ("connect",) and self.session.canvas is None:
             view = self.views["connect"]
         self.current = view
         view.enter(**kw)
         self.stack.setCurrentWidget(view)
         self.setWindowTitle(f"Painter · {view.title}")
+        self._mark_nav(view)
+
+    def _mark_nav(self, view):
         self.nav_group.setExclusive(False)
         for key, b in self.nav.items():
             b.setChecked(key == view.section)
@@ -159,6 +166,9 @@ class MainWindow(QMainWindow):
     # ---- closing during a run ----
     def closeEvent(self, ev):
         if not self.runner.running:
+            if self.current is not None and not self.current.unsaved_ok(closing=True):
+                ev.ignore()                     # grade file edits kept; nothing closes
+                return
             ev.accept()
             return
         if self.runner.cancellable:

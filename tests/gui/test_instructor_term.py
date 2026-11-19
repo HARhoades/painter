@@ -6,6 +6,7 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pytestqt")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from conftest import connect_window  # noqa: E402
 from painter.gui.section_filter import NOBODY, instructor_names  # noqa: E402
 
@@ -89,7 +90,9 @@ def test_term_comes_from_the_course_name(make):
     v = make
     assert (v.ay.text(), v.term.text()) == ("27", "1") and v.term_ok()
     assert "From the course term “AY27-1”" in v.term_note.text()
-    assert "A1-DATE_Grading-27-1.txt" in v.term_note.text()
+    v.a_all.click()
+    v.s_all.click()
+    assert "A1-DATE-Scenario-27-1.txt" in v.names_preview.text()
 
 
 def test_term_is_required_when_the_name_says_nothing(window, make, qtbot, monkeypatch):
@@ -117,7 +120,7 @@ def test_term_is_required_when_the_name_says_nothing(window, make, qtbot, monkey
     with qtbot.waitSignal(v.maker.finished, timeout=5000):
         v.make()
     names = sorted(p.name for p in v.folder().glob("*.txt"))
-    assert names and all(n.endswith("_Grading-28-2.txt") for n in names)
+    assert names and all(n.endswith("-28-2.txt") for n in names)
 
 
 def test_typed_term_overrides_the_name(make):
@@ -139,3 +142,63 @@ def test_a_disabled_main_button_looks_disabled(make, qtbot):
     assert v.make_btn.isEnabled()
     on = v.make_btn.grab().toImage().pixelColor(6, v.make_btn.height() // 2).name()
     assert off != on
+
+
+# ---- file names: prefix style, AY/semester box, base names, preview ----
+def _names_made(v, qtbot):
+    with qtbot.waitSignal(v.maker.finished, timeout=5000):
+        v.make()
+    return sorted(p.name for p in v.folder().glob("*.txt"))
+
+
+def test_preview_matches_the_files_made(make, qtbot):
+    v = make
+    v.a_all.click()
+    v.s_all.click()
+    shown = sorted(v.planned(), key=str.casefold)
+    assert shown and all(n in v.names_preview.text() for n in shown)
+    assert _names_made(v, qtbot) == sorted(shown)
+
+
+def test_term_can_be_left_out_of_the_names(make, qtbot, monkeypatch):
+    v = make
+    from dataclasses import replace
+    monkeypatch.setattr(v.session, "course", replace(v.session.course, term="Fall 2026"))
+    v.enter()
+    v.a_all.click()
+    v.s_all.click()
+    assert not v.make_btn.isEnabled()                 # AY and semester still wanted
+    v.use_term.setChecked(False)
+    assert v.term_ok() and v.make_btn.isEnabled() and not v.ay.isVisibleTo(v)
+    assert "A1-DATE-Scenario.txt" in v.names_preview.text()
+    assert "A1-DATE-Scenario.txt" in _names_made(v, qtbot)
+
+
+def test_prefix_style_and_typed_base_are_remembered_per_course(make, qtbot):
+    v = make
+    v.prefix.setCurrentIndex(v.prefix.findData("instructor"))
+    item = v.table.item(0, 2)
+    item.setText("Lab one: loops?")
+    assert item.text() == "Lab-one-loops"                   # cleaned for disk
+    v.table.item(0, 0).setCheckState(Qt.Checked)
+    v.s_all.click()
+    assert "A1-Rhoades-Lab-one-loops-27-1.txt" in v.names_preview.text()
+    saved = json.loads(v.session.settings_path.read_text())["course_naming"]["100"]
+    assert saved["prefix"] == "instructor" and list(saved["bases"].values()) == ["Lab-one-loops"]
+    v.loaded_for = None
+    v.enter()
+    assert v.prefix.currentData() == "instructor" and v.table.item(0, 2).text() == "Lab-one-loops"
+    v.table.item(0, 2).setText("")                          # back to the assignment's name
+    assert v.table.item(0, 2).text() != "" and not v.bases
+    made = _names_made(v, qtbot)
+    assert made and all(n.startswith(("A1-Rhoades-", "A2-Smith-")) for n in made)
+    assert not any("Lab-one" in n for n in made)
+
+
+def test_new_courses_start_from_the_settings_defaults(make):
+    v = make
+    s = v.session.settings
+    s.grade_naming = {"prefix": "full", "term": False}
+    s.course_naming = {}
+    v.enter()
+    assert v.prefix.currentData() == "full" and not v.use_term.isChecked()

@@ -7,13 +7,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QFileDialog, QFrame, QGridLayout
 
+from painter.gui.grade_text import overlap_text
 from painter.gui.views import View
 from painter.gui.widgets import (
     Banner, Card, SearchBox, StepBar, button, clear, heading, hbox, hidden_note, label,
-    show_problem,
 )
 from painter.services.grade_files import GradeFileError, find_grade_files, parse_grade_file
-from painter.services.grading import plan_grades
 
 
 class DropZone(QFrame):
@@ -49,15 +48,16 @@ class GradesPickView(View):
 
     def __init__(self, win):
         super().__init__(win)
-        self.page.addWidget(heading("Post grades", "Add filled-in grade files. Nothing is sent "
-                                    "until you've reviewed every change and confirmed.")[0])
+        self.page.addWidget(heading("Post grades", "Add filled-in grade files. Next you can "
+                                    "preview and correct them; nothing is sent until you've "
+                                    "reviewed every change and confirmed.")[0])
         self.page.addWidget(StepBar())
         self.page.addWidget(self._saved_card())
         drop = DropZone()
         drop.dropped.connect(self.add)
         lay = hbox(label("<span style='font-size:18px; font-weight:700'>Drop grade files "
                          "here</span><br><span style='color:#5E574C'>Grade files kept elsewhere, e.g. "
-                         "A2-DATE_Grading-27-1.txt</span>", wrap=True),
+                         "A2-DATE-Scenario-27-1.txt</span>", wrap=True),
                    button("Choose files…", "secondary", self.choose),
                    margins=(24, 22, 24, 22))
         drop.setLayout(lay)
@@ -74,15 +74,14 @@ class GradesPickView(View):
         self.page.addWidget(self.dup)
         self.page.addWidget(label("Off: repeated comments are skipped, so posting a file twice "
                                   "never doubles them.", "muted"))
+        self.overlap = Banner()
+        self.page.addWidget(self.overlap)
         self.banner = Banner()
         self.page.addWidget(self.banner)
-        self.check_btn = button("Check against Canvas", "primary", self.check)
+        self.check_btn = button("Preview files", "primary", self.check)
         self.page.addLayout(hbox(self.check_btn, None))
         self.page.addStretch(1)
         self.files: dict[Path, tuple] = {}
-        r = win.runner
-        r.finished.connect(self._checked)
-        r.failed.connect(self._failed)
 
     # ---- grade files Painter keeps (Make grade files saves them here) ----
     def _saved_card(self) -> Card:
@@ -215,9 +214,6 @@ class GradesPickView(View):
         self._filter_saved()
         self._refresh()
 
-    def _mine(self):
-        return self.win.current is self and getattr(self, "_checking", False)
-
     def enter(self, **kw):
         self.scan()
         self._refresh()
@@ -269,6 +265,11 @@ class GradesPickView(View):
         self.grid.setColumnStretch(1, 1)
         n = len(self.files)
         self.count.setText(f"{n} file{'s' * (n != 1)}" if n else "No files yet")
+        text = overlap_text([gf for gf, _ in self.files.values() if gf is not None])
+        if text:
+            self.overlap.set("attention", "These files overlap", text)
+        else:
+            self.overlap.set("info")
 
     def missing(self) -> str:
         if not self.files:
@@ -279,32 +280,13 @@ class GradesPickView(View):
         return ""
 
     def check(self):
+        """On to Preview and edit (reads the files only; Canvas comes after)."""
         why = self.missing()
         if why:
             self.banner.set("attention", "Not yet", why)
             return
-        if self.win.runner.running:
-            return
-        self.banner.set("info", "Checking against Canvas…", "Reading only; nothing is sent.")
-        self._checking = True
-        self.check_btn.setEnabled(False)
-        self.win.runner.start(plan_grades, self.session.canvas, list(self.files), None,
-                              self.dup.isChecked())
-
-    def _checked(self, plans):
-        if not self._mine():
-            return
-        self._checking = False
-        self.check_btn.setEnabled(True)
         self.banner.set("info")
-        self.win.go("grades_review", plans=plans, allow_dup=self.dup.isChecked())
-
-    def _failed(self, exc):
-        if not self._mine():
-            return
-        self._checking = False
-        self.check_btn.setEnabled(True)
-        show_problem(self.banner, exc, self.win.open_settings)
+        self.win.go("grades_preview", paths=list(self.files), allow_dup=self.dup.isChecked())
 
 
 def _folder_label(path: Path, root: Path) -> str:

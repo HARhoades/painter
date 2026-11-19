@@ -62,9 +62,15 @@ def test_stop_between_assignments(fake_canvas, tmp_path):
 def test_labels_stay_apart_when_names_start_alike():
     got = batch_labels([{"id": 1, "name": "DATE Scenario"}, {"id": 2, "name": "DATE Review"},
                         {"id": 3, "name": "Quiz"}])
-    assert got[3] == "Quiz"
-    assert got[1] != got[2] and got[1].startswith("DATE") and got[2].startswith("DATE")
+    assert got == {1: "DATE-Scenario", 2: "DATE-Review", 3: "Quiz"}
     assert batch_labels([{"id": 5, "name": ""}])[5] == "5"
+
+
+def test_chosen_base_names_win_and_never_collide():
+    a = [{"id": 1, "name": "DATE Scenario"}, {"id": 2, "name": "Quiz"}]
+    assert batch_labels(a, {1: "Lab one"}) == {1: "Lab-one", 2: "Quiz"}
+    assert batch_labels(a, {1: "quiz"}) == {1: "quiz", 2: "Quiz-2"}
+    assert batch_labels(a, {1: "   "})[1] == "DATE-Scenario"
 
 
 def test_find_grade_files_newest_first(tmp_path):

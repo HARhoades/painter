@@ -191,11 +191,16 @@ def _add_grades(subs) -> None:
                    help="fills in the assignment title and id (optional)")
     p.add_argument("--section", action="append", metavar="SPEC",
                    help="only these sections (repeatable; default: every section)")
-    p.add_argument("--label", metavar="NAME",
-                   help="assignment part of the file name (default: first word of "
-                        "the assignment name; required without --assignment)")
+    p.add_argument("--label", "--base", dest="label", metavar="NAME",
+                   help="assignment part of the file name (default: the assignment "
+                        "name; required without --assignment)")
+    p.add_argument("--prefix", choices=("short", "full", "instructor"), default="short",
+                   help="section part of the file name: short (A1, the default), full "
+                        "(A1-8) or instructor (A1-Rhoades)")
     p.add_argument("--ay", metavar="YY", help="academic year (default: from the term name)")
     p.add_argument("--term", metavar="N", help="semester (default: from the term name)")
+    p.add_argument("--no-term", dest="include_term", action="store_false",
+                   help="leave the academic year and semester out of the file names")
     p.add_argument("--dir", default=".", metavar="DIR",
                    help="where to write the files (default: current folder)")
     p.add_argument("--force", action="store_true", help="overwrite existing files")

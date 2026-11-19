@@ -33,16 +33,81 @@ def parse_term_name(name: str | None) -> tuple[str, str] | None:
     return None
 
 
-def section_prefix(section_name: str) -> str:
-    """Filename prefix from a section name: 'A1-8' -> 'A1', 'A1' -> 'A1'."""
-    head = re.split(r"[-–_\s]", (section_name or "").strip(), maxsplit=1)[0]
-    return slug(head, 20)
+# Prefix styles: how much of the section name starts each file name. A prefix
+# is always there, so two sections' files for one assignment never share a name.
+PREFIX_STYLES = ("short", "full", "instructor")
+BASE_MAX = 40          # characters of the assignment part of a file name
 
 
-def grade_file_name(section_name: str, label: str, ay: str, term: str) -> str:
-    """<Section><Number>-<ASSIGNMENT>_Grading-AY<YY>-<SEMESTER>, e.g.
-    A1-DATE_Grading-27-1.txt (the AY is written as the two-digit year)."""
-    return f"{section_prefix(section_name)}-{label}_Grading-{ay}-{term}.txt"
+def section_prefix(section_name: str, style: str = "short", instructor: str = "") -> str:
+    """File name prefix from a section name.
+
+    short: 'A1-8' -> 'A1';  full: 'A1-8' -> 'A1-8';
+    instructor: 'A1-8' + 'Rhoades' -> 'A1-Rhoades' (just 'A1' without one).
+    """
+    if style not in PREFIX_STYLES:
+        raise InvalidInput(f"Unknown prefix style {style!r}: use one of "
+                           f"{', '.join(PREFIX_STYLES)}.")
+    name = (section_name or "").strip()
+    short = slug(re.split(r"[-–_\s]", name, maxsplit=1)[0], 20)
+    if style == "full":
+        return slug(name, 30)
+    if style == "instructor" and (instructor or "").strip():
+        return f"{short}-{slug(instructor, 20)}"
+    return short
+
+
+def base_name(text: str) -> str:
+    """The assignment part of a file name: safe on disk and at most BASE_MAX long."""
+    return slug(text, BASE_MAX)
+
+
+def grade_file_name(prefix: str, base: str, ay: str | None = None,
+                    term: str | None = None) -> str:
+    """<prefix>-<base>[-<AY>-<semester>].txt, e.g. A1-DATE-Scenario-27-1.txt.
+    The AY and semester are left out unless both are given."""
+    stem = f"{prefix}-{base}"
+    if ay and term:
+        stem += f"-{ay}-{term}"
+    return stem + ".txt"
+
+
+@dataclass(frozen=True)
+class Naming:
+    """How one run names its files."""
+    style: str = "short"
+    ay: str | None = None            # both None: no AY or semester in the names
+    term: str | None = None
+
+
+def name_section_files(sections: list[tuple[int, str, str]], base: str,
+                       naming: Naming) -> tuple[dict[int, str], list[str]]:
+    """File name per section for one assignment, and notes on any clash.
+
+    sections: (section id, section name, instructor). Names are compared
+    without case, as on Windows. When two sections reduce to one name (A2-8 and
+    A2-9 are both "A2"), the later one uses its full section name; if even that
+    clashes, its section id is added.
+    """
+    names: dict[int, str] = {}
+    used: dict[str, str] = {}             # casefolded name -> section that has it
+    notes: list[str] = []
+    for sid, sname, instructor in sorted(sections, key=lambda t: (t[1] or "", t[0])):
+        sname = sname or str(sid)
+        prefix = section_prefix(sname, naming.style, instructor)
+        name = grade_file_name(prefix, base, naming.ay, naming.term)
+        if name.casefold() in used:
+            notes.append(f"note: {sname} and {used[name.casefold()]} share a prefix; "
+                         f"using the full section name for {sname}")
+            full = section_prefix(sname, "full")
+            if naming.style == "instructor" and (instructor or "").strip():
+                full = f"{full}-{slug(instructor, 20)}"
+            name = grade_file_name(full, base, naming.ay, naming.term)
+            if name.casefold() in used:
+                name = grade_file_name(f"{full}-{sid}", base, naming.ay, naming.term)
+        used[name.casefold()] = sname
+        names[sid] = name
+    return names, notes
 
 
 def render_grade_file(assignment: dict | None, label: str, section: dict,
@@ -77,11 +142,12 @@ class GradeFilesRequest:
     out_dir: Path
     section_specs: tuple[str, ...] = ()      # empty: every section
     assignment_ids: tuple[int, ...] = ()     # at most one; empty leaves title/id blank
-    label: str | None = None                 # filename label; default: first word of
-                                             # the assignment name
+    label: str | None = None                 # base name; default: the assignment name
     ay: str | None = None                    # default: from the course term name
     term: str | None = None
     force: bool = False                      # overwrite existing files
+    prefix_style: str = "short"              # see PREFIX_STYLES
+    include_term: bool = True                # add -<AY>-<semester> to the names
 
 
 @dataclass
@@ -93,33 +159,41 @@ class GradeFilesResult:
 
 def _assignment_and_label(canvas: Canvas, req: GradeFilesRequest) -> tuple[dict | None, str]:
     """The assignment (optional: without it the header is left blank to fill
-    in) and the label that names the files."""
+    in) and the base name for the files."""
     label = req.label
     assignment = require_one(canvas, req.course_id, req.assignment_ids,
                              "grade files are made for at most one assignment.",
                              optional=True)
     if assignment:
-        label = label or (assignment.get("name") or "").split()[0]
+        label = label or assignment.get("name") or str(assignment["id"])
     if not label:
         raise InvalidInput("Without --assignment, pass --label NAME for "
                            "the filename, e.g. --label DATE.")
-    return assignment, slug(label, 30)
+    return assignment, base_name(label)
 
 
-def _academic_term(canvas: Canvas, req: GradeFilesRequest,
+def _academic_term(canvas: Canvas, course_id: int, ay: str | None, term: str | None,
                    reporter: Reporter) -> tuple[str, str]:
-    """AY (two digits) and semester: from --ay/--term, else the course's term name."""
-    ay, term = req.ay, req.term
+    """AY (two digits) and semester: as given, else from the course's term name."""
     if not (ay and term):
-        term_name = ((canvas.course(req.course_id).get("term") or {}).get("name") or "")
+        term_name = ((canvas.course(course_id).get("term") or {}).get("name") or "")
         parsed = parse_term_name(term_name)
         if not parsed:
             raise InvalidInput(
                 f"Could not read an academic year and semester from the course "
-                f"term name {term_name!r}. Pass --ay and --term, e.g. --ay 27 --term 1.")
+                f"term name {term_name!r}. Pass --ay and --term, e.g. --ay 27 --term 1, "
+                f"or leave them out of the names with --no-term.")
         ay, term = ay or parsed[0], term or parsed[1]
         reporter.info(f"Term {term_name!r} -> AY{ay}, semester {term}")
     return ay[-2:], term
+
+
+def _naming(canvas: Canvas, course_id: int, style: str, include_term: bool,
+            ay: str | None, term: str | None, reporter: Reporter) -> Naming:
+    section_prefix("", style)                 # an unknown style fails before any work
+    if not include_term:
+        return Naming(style)
+    return Naming(style, *_academic_term(canvas, course_id, ay, term, reporter))
 
 
 @watches_canvas()
@@ -136,12 +210,13 @@ def make_grade_files(canvas: Canvas, req: GradeFilesRequest,
         reporter.info("No --section given: writing a file for every section in the course.")
 
     assignment, label = _assignment_and_label(canvas, req)
-    ay, term = _academic_term(canvas, req, reporter)
+    naming = _naming(canvas, req.course_id, req.prefix_style, req.include_term,
+                     req.ay, req.term, reporter)
     instructors = section_instructors(canvas, req.course_id)
     out_dir = Path(req.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     result = GradeFilesResult(out_dir)
-    _write_section_files(_Batch(roster, instructors, ay, term, out_dir, req.force,
+    _write_section_files(_Batch(roster, instructors, naming, out_dir, req.force,
                                 reporter, result), section_ids, assignment, label)
     reporter.info(f"\n{len(result.written)} file(s) written to {out_dir}")
     return result
@@ -152,12 +227,27 @@ class _Batch:
     """What every file in one run shares."""
     roster: Roster
     instructors: dict
-    ay: str
-    term: str
+    naming: Naming
     out_dir: Path
     force: bool
     reporter: Reporter
     result: GradeFilesResult
+
+
+def students_of(roster: Roster, sid: int) -> list[dict]:
+    """A section's students, sorted by name."""
+    return sorted((roster.users[u] for u in roster.users_of_section.get(sid, set())),
+                  key=lambda u: u.get("sortable_name") or u.get("name") or "")
+
+
+def planned_names(roster: Roster, instructors: dict, section_ids, base: str,
+                  naming: Naming) -> tuple[dict[int, str], list[str]]:
+    """File name per section that has students, for one assignment (what the
+    run will write, and what the window previews)."""
+    sections = [(sid, roster.section_by_id[sid].get("name") or str(sid),
+                 (instructors.get(sid) or [""])[0])
+                for sid in section_ids if roster.users_of_section.get(sid)]
+    return name_section_files(sections, base, naming)
 
 
 def _write_section_files(b: _Batch, section_ids, assignment: dict | None,
@@ -166,32 +256,22 @@ def _write_section_files(b: _Batch, section_ids, assignment: dict | None,
     roster, reporter = b.roster, b.reporter
     # Teachers first, TAs only where a section has no teacher: the same rule
     # as the roster CSV (review finding 6).
-    used: dict[str, str] = {}      # filename -> section name that claimed it
+    names, notes = planned_names(roster, b.instructors, section_ids, label, b.naming)
     for sid in sorted(section_ids,
                       key=lambda i: roster.section_by_id[i].get("name") or ""):
         section = roster.section_by_id[sid]
-        students = sorted(
-            (roster.users[u] for u in roster.users_of_section.get(sid, set())),
-            key=lambda u: u.get("sortable_name") or u.get("name") or "")
+        section_name = section.get("name") or str(sid)
+        students = students_of(roster, sid)
         if not students:
-            reporter.info(f"  {section.get('name')}: no students, skipped")
+            reporter.info(f"  {section_name}: no students, skipped")
             continue
         teachers = b.instructors.get(sid, [])
         if len(teachers) > 1:
-            reporter.info(f"  note: {section.get('name')} has several instructors "
+            reporter.info(f"  note: {section_name} has several instructors "
                           f"({', '.join(teachers)}); using {teachers[0]}")
-
-        # Two sections can share a prefix (A2-8 and A2-9 both reduce to "A2"),
-        # so the second one keeps its full section name instead of clobbering
-        # the first.
-        section_name = section.get("name") or str(sid)
-        name = grade_file_name(section_name, label, b.ay, b.term)
-        if name in used:
-            reporter.info(f"  note: {section_name} and {used[name]} share a prefix; "
-                          f"using the full section name for {section_name}")
-            name = f"{slug(section_name, 20)}-{label}_Grading-{b.ay}-{b.term}.txt"
-        used[name] = section_name
-        path = b.out_dir / name
+        for n in [n for n in notes if n.startswith(f"note: {section_name} and ")]:
+            reporter.info(f"  {n}")
+        path = b.out_dir / names[sid]
         if path.exists() and not b.force:
             reporter.info(f"  ! {path} exists; not overwritten (use --force)")
             b.result.kept.append(path)
@@ -206,18 +286,18 @@ def _write_section_files(b: _Batch, section_ids, assignment: dict | None,
         reporter.event(ItemDone("file", path.name, "written", section_name, path))
 
 
-def batch_labels(assignments: list[dict]) -> dict[int, str]:
-    """A filename label per assignment: the first word of its name, or, when two
-    chosen assignments share a first word, more of the name (then its id)."""
-    first = {a["id"]: slug((a.get("name") or "").split()[0] if a.get("name") else
-                           str(a["id"]), 30) for a in assignments}
+def batch_labels(assignments: list[dict], chosen: dict | None = None) -> dict[int, str]:
+    """A base name per assignment: the one chosen for it, else its name. Two
+    assignments never share one (compared without case): the later gets its id."""
+    chosen = chosen or {}
     out: dict[int, str] = {}
+    seen: set[str] = set()
     for a in assignments:
-        label = first[a["id"]]
-        if list(first.values()).count(label) > 1:
-            label = slug(a.get("name") or str(a["id"]), 30)
-        if label in out.values():
+        label = base_name((chosen.get(a["id"]) or "").strip() or a.get("name")
+                          or str(a["id"]))
+        if label.casefold() in seen:
             label = f"{label}-{a['id']}"
+        seen.add(label.casefold())
         out[a["id"]] = label
     return out
 
@@ -232,6 +312,9 @@ class GradeFilesBatch:
     force: bool = False
     ay: str | None = None                    # default: from the course term name
     term: str | None = None
+    prefix_style: str = "short"              # see PREFIX_STYLES
+    include_term: bool = True
+    bases: dict = field(default_factory=dict)   # assignment id -> base name typed in
 
 
 @watches_canvas()
@@ -252,14 +335,14 @@ def make_grade_files_for(canvas: Canvas, req: GradeFilesBatch,
     if missing:
         raise InvalidInput(f"Assignment {missing[0]} is no longer in this course.")
     chosen = [by_id[a] for a in req.assignment_ids]
-    ay, term = _academic_term(canvas, GradeFilesRequest(req.course_id, req.out_dir,
-                                                        ay=req.ay, term=req.term), reporter)
+    naming = _naming(canvas, req.course_id, req.prefix_style, req.include_term,
+                     req.ay, req.term, reporter)
     out_dir = Path(req.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     result = GradeFilesResult(out_dir)
-    b = _Batch(roster, section_instructors(canvas, req.course_id), ay, term, out_dir,
+    b = _Batch(roster, section_instructors(canvas, req.course_id), naming, out_dir,
                req.force, reporter, result)
-    labels = batch_labels(chosen)
+    labels = batch_labels(chosen, req.bases)
     for i, a in enumerate(chosen, 1):
         if reporter.cancelled():
             raise Cancelled(f"stopped after {len(result.written)} file(s)", result)
@@ -294,6 +377,15 @@ class GradeEntry:
     grade: str
     comments: str
 
+    @property
+    def key(self) -> str:
+        """Which student this is within one file: the Canvas id, else the name."""
+        return f"id:{self.id}" if self.id else f"name:{self.name.casefold()}"
+
+    @property
+    def blank(self) -> bool:
+        return not (self.grade or self.comments)
+
 
 @dataclass
 class GradeFile:
@@ -305,6 +397,8 @@ class GradeFile:
     instructor: str
     entries: list[GradeEntry]
     blank_entries: int = 0     # named students with no grade and no comment
+    students: list[GradeEntry] = field(default_factory=list)   # every named student,
+                                                               # filled in or not
 
 
 def parse_grade_file(path: Path) -> GradeFile:
@@ -314,7 +408,10 @@ def parse_grade_file(path: Path) -> GradeFile:
     previous comments= value, so comments can span lines. Anything else
     unexpected is an error, reported with its line number.
     """
-    blocks = _read_blocks(path)
+    return grade_file_from_blocks(path, _read_blocks(path))
+
+
+def grade_file_from_blocks(path: Path, blocks: list[dict]) -> GradeFile:
     assigns = [b for b in blocks if b["_kind"] == "ASSIGNMENT"]
     if len(assigns) != 1:
         raise GradeFileError(path, None, f"expected one [ASSIGNMENT] block, found {len(assigns)}")
@@ -323,7 +420,7 @@ def parse_grade_file(path: Path) -> GradeFile:
         raise GradeFileError(path, None, f"expected at most one [SECTION] block, found {len(sections)}")
     a = assigns[0]
     s = sections[0] if sections else {}
-    entries, blank = _student_entries(path, blocks)
+    entries, blank, students = _student_entries(path, blocks)
     return GradeFile(
         path=path,
         assignment_id=_int_field(path, a, "id", required=True),
@@ -333,16 +430,25 @@ def parse_grade_file(path: Path) -> GradeFile:
         instructor=(s.get("instructor") or "").strip(),
         entries=entries,
         blank_entries=blank,
+        students=students,
     )
 
 
 def _read_blocks(path: Path) -> list[dict]:
-    """The file as a list of blocks: {"_kind", "_line", key: value, ...}."""
+    return read_blocks_text(path, path.read_text(encoding="utf-8-sig"))
+
+
+def read_blocks_text(path: Path, text: str) -> list[dict]:
+    """The file as a list of blocks: {"_kind", "_line", "_spans", key: value, ...}.
+
+    _spans[key] = [first, last] line numbers of that value, continuation lines
+    included (blank lines after it are not); _end is the block's last
+    non-blank line. Editing in the window rewrites exactly these lines.
+    """
     blocks: list[dict] = []
     current: dict | None = None
     last_key = None
 
-    text = path.read_text(encoding="utf-8-sig")
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip()
         stripped = line.strip()
@@ -352,7 +458,7 @@ def _read_blocks(path: Path) -> list[dict]:
             kind = header.group(1).upper()
             if kind not in GRADE_FILE_KEYS:
                 raise GradeFileError(path, lineno, f"unknown block [{header.group(1)}]")
-            current = {"_kind": kind, "_line": lineno}
+            current = {"_kind": kind, "_line": lineno, "_spans": {}, "_end": lineno}
             blocks.append(current)
             last_key = None
             continue
@@ -368,12 +474,17 @@ def _read_blocks(path: Path) -> list[dict]:
             if key in current:
                 raise GradeFileError(path, lineno, f"'{key}' appears twice in one block")
             current[key] = kv.group(2).strip()
+            current["_spans"][key] = [lineno, lineno]
+            current["_end"] = lineno
             last_key = key
             continue
 
         if last_key == "comments":
             # Indentation is for readability in the file; don't send it.
             current["comments"] += "\n" + stripped
+            if stripped:
+                current["_spans"]["comments"][1] = lineno
+                current["_end"] = lineno
             continue
         if stripped:
             raise GradeFileError(path, lineno, f"unexpected line: {stripped!r}")
@@ -393,10 +504,11 @@ def _int_field(path: Path, block: dict, key: str, required: bool) -> int | None:
                              f"[{block['_kind']}] {key}={value!r} is not a number")
 
 
-def _student_entries(path: Path, blocks: list[dict]) -> tuple[list[GradeEntry], int]:
-    """The [STUDENT] blocks with a grade or comment, and how many named
-    students had neither. Empty template slots are ignored."""
-    entries, blank = [], 0
+def _student_entries(path: Path, blocks: list[dict]) -> tuple[list[GradeEntry], int,
+                                                              list[GradeEntry]]:
+    """The [STUDENT] blocks with a grade or comment, how many named students
+    had neither, and every named student. Empty template slots are ignored."""
+    entries, blank, students = [], 0, []
     for b in blocks:
         if b["_kind"] != "STUDENT":
             continue
@@ -410,11 +522,24 @@ def _student_entries(path: Path, blocks: list[dict]) -> tuple[list[GradeEntry], 
                 raise GradeFileError(path, e.line,
                                      "student has a grade or comment but no name or id")
             continue                      # unused template slot
+        students.append(e)
         if not (e.grade or e.comments):
             blank += 1
             continue
         entries.append(e)
-    return entries, blank
+    return entries, blank, students
+
+
+def overlapping(files: list[GradeFile]) -> list[list[GradeFile]]:
+    """Groups of two or more files for the same assignment and section, in the
+    order given. Posting all of them sends the later file's grades over the
+    earlier's, so the window warns about them."""
+    groups: dict[tuple, list[GradeFile]] = {}
+    for gf in files:
+        section = gf.section_id if gf.section_id is not None else \
+            (gf.section_title or "").casefold()
+        groups.setdefault((gf.assignment_id, section), []).append(gf)
+    return [g for g in groups.values() if len(g) > 1]
 
 
 def find_grade_files(root: Path, limit: int = 500, recursive: bool = True) -> list[Path]:

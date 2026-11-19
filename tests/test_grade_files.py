@@ -1,10 +1,11 @@
 import pytest
 
 from painter.domain.matching import name_matches
+from painter.errors import InvalidInput
 from painter.domain.roster import Roster, instructor_label
 from painter.services.grade_files import (
     GradeEntry, GradeFileError, grade_file_name, parse_grade_file, parse_term_name,
-    render_grade_file, section_prefix,
+    render_grade_file, section_prefix, BASE_MAX, Naming, base_name, name_section_files,
 )
 from painter.services.grading import (
     PlannedGrade, grade_fields, resolve_grade_entry, verify_posted,
@@ -58,7 +59,31 @@ def test_term_names():
 def test_file_naming():
     assert section_prefix("A1-8") == "A1"
     assert section_prefix("A1") == "A1"
-    assert grade_file_name("A1-8", "DATE", "27", "1") == "A1-DATE_Grading-27-1.txt"
+    assert section_prefix("A1-8", "full") == "A1-8"
+    assert section_prefix("A1-8", "instructor", "Rhoades") == "A1-Rhoades"
+    assert section_prefix("A1-8", "instructor", "") == "A1"
+    assert grade_file_name("A1", "DATE", "27", "1") == "A1-DATE-27-1.txt"
+    assert grade_file_name("A1", "DATE") == "A1-DATE.txt"
+    assert grade_file_name("A1", "DATE", "27", None) == "A1-DATE.txt"
+    with pytest.raises(InvalidInput):
+        section_prefix("A1", "tiny")
+
+
+def test_base_name_is_safe_and_short():
+    assert base_name("Lab 3: Loops / Lists?") == "Lab-3-Loops-Lists"
+    assert len(base_name("x" * 200)) == BASE_MAX
+
+
+def test_section_names_never_clash():
+    names, notes = name_section_files(
+        [(2, "A2-9", "Lee"), (1, "A2-8", "Lee"), (3, "a2", "Kim")], "DATE", Naming("short"))
+    assert names[1] == "A2-DATE.txt"
+    assert names[2] == "A2-9-DATE.txt"
+    assert names[3].casefold() not in {names[1].casefold(), names[2].casefold()}
+    assert len(notes) == 2
+    names, _ = name_section_files([(1, "A1-8", "Lee"), (2, "A1-9", "Lee")], "Q",
+                                  Naming("instructor", "27", "1"))
+    assert names == {1: "A1-Lee-Q-27-1.txt", 2: "A1-9-Lee-Q-27-1.txt"}
 
 
 def test_instructor_label():

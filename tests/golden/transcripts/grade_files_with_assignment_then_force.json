@@ -17,8 +17,8 @@
    "stdout": [
     "No --section given: writing a file for every section in the course.",
     "Term 'AY27-1' -> AY27, semester 1",
-    "  <TMP>/g/A1-DATE_Grading-27-1.txt  (1 students)",
-    "  <TMP>/g/A2-DATE_Grading-27-1.txt  (2 students)",
+    "  <TMP>/g/A1-DATE-Scenario-27-1.txt  (1 students)",
+    "  <TMP>/g/A2-DATE-Scenario-27-1.txt  (2 students)",
     "",
     "2 file(s) written to <TMP>/g"
    ],
@@ -49,8 +49,8 @@
    "stdout": [
     "No --section given: writing a file for every section in the course.",
     "Term 'AY27-1' -> AY27, semester 1",
-    "  ! <TMP>/g/A1-DATE_Grading-27-1.txt exists; not overwritten (use --force)",
-    "  ! <TMP>/g/A2-DATE_Grading-27-1.txt exists; not overwritten (use --force)",
+    "  ! <TMP>/g/A1-DATE-Scenario-27-1.txt exists; not overwritten (use --force)",
+    "  ! <TMP>/g/A2-DATE-Scenario-27-1.txt exists; not overwritten (use --force)",
     "",
     "0 file(s) written to <TMP>/g"
    ],
@@ -83,7 +83,7 @@
    "exit": 0,
    "stdout": [
     "Term 'AY27-1' -> AY27, semester 1",
-    "  <TMP>/g/A1-DATE_Grading-27-1.txt  (1 students)",
+    "  <TMP>/g/A1-DATE-Scenario-27-1.txt  (1 students)",
     "",
     "1 file(s) written to <TMP>/g"
    ],
@@ -99,7 +99,7 @@
   }
  ],
  "files": {
-  "g/A1-DATE_Grading-27-1.txt": [
+  "g/A1-DATE-Scenario-27-1.txt": [
    "[ASSIGNMENT]",
    "title=DATE Scenario",
    "id=7001",
@@ -115,7 +115,7 @@
    "grade=",
    "comments="
   ],
-  "g/A2-DATE_Grading-27-1.txt": [
+  "g/A2-DATE-Scenario-27-1.txt": [
    "[ASSIGNMENT]",
    "title=DATE Scenario",
    "id=7001",

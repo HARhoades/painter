@@ -152,8 +152,11 @@ def test_a_filled_file_from_the_folder_can_be_checked(window, make, qtbot):
     pick = window.views["grades_pick"]
     pick.saved[path].setChecked(True)
     assert pick.missing() == ""
+    pick.check()
+    preview = window.views["grades_preview"]
+    assert window.current is preview and len(preview.cards) == 1
     with qtbot.waitSignal(window.runner.finished, timeout=5000):
-        pick.check()
+        preview.check()
     assert window.current is window.views["grades_review"]
 
 

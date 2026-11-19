@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from painter.config import TOKEN_ENV
+from painter.gui.grade_prefs import GradeFilePrefs
 from painter.gui.session import ENV, check_connection
 from painter.gui.views import View
 from painter.gui.widgets import Banner, Card, button, heading, hbox, label, show_problem
@@ -39,6 +40,8 @@ class ConnectView(View):
 
         self.page.addWidget(self._form_card())
         self.page.addWidget(self._data_card())
+        self.prefs = GradeFilePrefs(self.session)
+        self.page.addWidget(self.prefs)
 
         self.banner = Banner()
         self.page.addWidget(self.banner)
@@ -271,6 +274,7 @@ class ConnectView(View):
     def enter(self, auto: bool = False, **kw) -> None:
         s = self.session
         self._data_text()
+        self.prefs.load()
         if s.canvas is not None and self._checked:
             return                                   # back in Settings: leave it as it was
         if not self.url.text():

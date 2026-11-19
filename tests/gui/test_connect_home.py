@@ -1,4 +1,5 @@
 """Shell, Connect and Home (phase 5, steps 8-9)."""
+import json
 import pytest
 
 pytest.importorskip("PySide6")
@@ -218,3 +219,18 @@ def test_course_list_is_beige_with_lines(window, qtbot):
     assert home.list.objectName() == "courses"
     assert "QListWidget#courses::item { border: 0; border-bottom" in build_qss()
     assert "Painter remembers" not in home.sub.text()
+
+
+def test_settings_holds_grade_file_defaults(window):
+    window.go("connect")
+    prefs = window.views["connect"].prefs
+    assert prefs.confirm.isChecked() and prefs.term.isChecked()
+    assert prefs.prefix.currentData() == "short"
+    assert all(not b.isEnabled() for b in prefs.later)          # placeholders for later
+    prefs.prefix.setCurrentIndex(prefs.prefix.findData("full"))
+    prefs.term.setChecked(False)
+    prefs.confirm.setChecked(False)
+    s = window.session.settings
+    assert s.grade_naming == {"prefix": "full", "term": False} and s.confirm_save is False
+    saved = json.loads(window.session.settings_path.read_text())
+    assert saved["grade_naming"]["prefix"] == "full" and saved["confirm_save"] is False

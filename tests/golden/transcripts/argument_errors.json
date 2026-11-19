@@ -157,7 +157,8 @@
    "stdout": [],
    "stderr": [
     "usage: painter grades new [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
-    "                          [--assignment ID] [--section SPEC] [--label NAME] [--ay YY] [--term N]",
+    "                          [--assignment ID] [--section SPEC] [--label NAME]",
+    "                          [--prefix {short,full,instructor}] [--ay YY] [--term N] [--no-term]",
     "                          [--dir DIR] [--force]",
     "painter grades new: error: --assignment can be given only once"
    ],

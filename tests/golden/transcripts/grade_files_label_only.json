@@ -20,8 +20,8 @@
    "exit": 0,
    "stdout": [
     "No --section given: writing a file for every section in the course.",
-    "  <TMP>/g/A1-DATE_Grading-27-2.txt  (1 students)",
-    "  <TMP>/g/A2-DATE_Grading-27-2.txt  (2 students)",
+    "  <TMP>/g/A1-DATE-27-2.txt  (1 students)",
+    "  <TMP>/g/A2-DATE-27-2.txt  (2 students)",
     "",
     "2 file(s) written to <TMP>/g"
    ],
@@ -35,7 +35,7 @@
   }
  ],
  "files": {
-  "g/A1-DATE_Grading-27-2.txt": [
+  "g/A1-DATE-27-2.txt": [
    "[ASSIGNMENT]",
    "title=",
    "id=",
@@ -51,7 +51,7 @@
    "grade=",
    "comments="
   ],
-  "g/A2-DATE_Grading-27-2.txt": [
+  "g/A2-DATE-27-2.txt": [
    "[ASSIGNMENT]",
    "title=",
    "id=",

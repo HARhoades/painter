@@ -134,7 +134,7 @@ def test_grade_file_instructor_prefers_teacher_over_ta(fake_canvas, run_cli, tmp
     code, _, err = run_cli(*COMMON, "--make-grade-files", "--assignment", "7001",
                            "--grade-file-dir", str(tmp_path))
     assert code == 0, err
-    text = (tmp_path / "A2-DATE_Grading-27-1.txt").read_text(encoding="utf-8")
+    text = (tmp_path / "A2-DATE-Scenario-27-1.txt").read_text(encoding="utf-8")
     assert "instructor=Smith\n" in text
 
 
@@ -153,8 +153,8 @@ def test_make_grade_files(fake_canvas, run_cli, tmp_path):
     code, out, err = run_cli(*COMMON, "--make-grade-files", "--assignment", "7001",
                              "--grade-file-dir", str(tmp_path))
     assert code == 0, err
-    assert tree(tmp_path) == ["A1-DATE_Grading-27-1.txt", "A2-DATE_Grading-27-1.txt"]
-    text = (tmp_path / "A2-DATE_Grading-27-1.txt").read_text(encoding="utf-8")
+    assert tree(tmp_path) == ["A1-DATE-Scenario-27-1.txt", "A2-DATE-Scenario-27-1.txt"]
+    text = (tmp_path / "A2-DATE-Scenario-27-1.txt").read_text(encoding="utf-8")
     assert text.startswith("[ASSIGNMENT]\ntitle=DATE Scenario\nid=7001\n\n"
                            "[SECTION]\ntitle=A2-8\ninstructor=Smith\nid=12\n")
     assert text.index("De La Cruz, Ana") < text.index("Roe, Rick")
@@ -191,7 +191,7 @@ comments=Excused for
 
 
 def test_post_grades_dry_run_posts_nothing(fake_canvas, run_cli, tmp_path):
-    gf = tmp_path / "A2-DATE_Grading-27-1.txt"
+    gf = tmp_path / "A2-DATE-Scenario-27-1.txt"
     gf.write_text(GRADES, encoding="utf-8")
     code, out, err = run_cli("--base-url", BASE, "--post-grades", str(gf), "--dry-run")
     assert code == 0, err
@@ -202,7 +202,7 @@ def test_post_grades_dry_run_posts_nothing(fake_canvas, run_cli, tmp_path):
 
 
 def test_post_grades_posts_one_bulk_request_and_verifies(fake_canvas, run_cli, tmp_path):
-    gf = tmp_path / "A2-DATE_Grading-27-1.txt"
+    gf = tmp_path / "A2-DATE-Scenario-27-1.txt"
     gf.write_text(GRADES, encoding="utf-8")
     code, out, err = run_cli("--base-url", BASE, "--post-grades", str(gf), "--yes")
     assert code == 0, err

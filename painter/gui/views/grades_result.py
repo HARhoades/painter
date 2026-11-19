@@ -34,7 +34,7 @@ class GradesResultView(View):
         head, self.h1, self.sub = heading("Posting…", " ")
         self.page.addWidget(head)
         steps = StepBar()
-        steps.set(3)
+        steps.set(4)
         self.page.addWidget(steps)
         self.bar = QProgressBar()
         self.bar.setTextVisible(False)

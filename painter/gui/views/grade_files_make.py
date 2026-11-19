@@ -7,27 +7,31 @@ from pathlib import Path
 from PySide6.QtCore import QRegularExpression, Qt
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem,
-    QWidget,
+    QAbstractItemView, QCheckBox, QHeaderView, QLineEdit, QTableWidget,
+    QTableWidgetItem, QWidget,
 )
 
 from painter.domain.freshness import classify, needs_check
 from painter.domain.naming import slug
 from painter.domain.roster import Roster
+from painter.gui.grade_prefs import prefix_combo
 from painter.gui.problems import short_reason
 from painter.gui.section_filter import InstructorFilter
 from painter.gui.views import View
 from painter.gui.views.download_done import open_path
 from painter.gui.views.download_setup import DAMAGED, load_choices
-from painter.config import exposed_in_repo
+from painter.config import course_naming, exposed_in_repo
 from painter.gui.widgets import (
     Banner, Card, FlowLayout, FolderPicker, FreshnessTag, SearchBox, button, clear, due_item,
     filter_rows, heading, hbox, label, show_problem,
 )
 from painter.gui.worker import TaskRunner
 from painter.services.grade_files import (
-    GradeFilesBatch, grade_file_name, make_grade_files_for, parse_term_name,
+    GradeFilesBatch, Naming, base_name, batch_labels, make_grade_files_for,
+    parse_term_name, planned_names,
 )
+
+SHOWN_NAMES = 8         # file names listed before "… and N more"
 from painter.services.snapshots import assignments_from_data, assignments_to_data
 
 
@@ -51,7 +55,7 @@ class GradeFilesMakeView(View):
         self.page.addWidget(self.banner)
         self.page.addWidget(self._assignments_card())
         self.page.addWidget(self._sections_card())
-        self.page.addWidget(self._term_card())
+        self.page.addWidget(self._names_card())
         self.page.addWidget(self._where_card())
         self.summary = label("", "h2")
         self.make_btn = button("Make grade files", "primary", self.make)
@@ -72,6 +76,7 @@ class GradeFilesMakeView(View):
         self.loaded_for, self.roster, self.lists_at = None, None, None
         self.checking, self.error, self.written = False, "", []
         self.section_buttons: dict[int, object] = {}
+        self.bases: dict[int, str] = {}         # assignment id -> base name typed in
 
     # ---- layout ----
     def _assignments_card(self) -> Card:
@@ -86,16 +91,25 @@ class GradeFilesMakeView(View):
         self.a_search.textChanged.connect(self._changed)
         self.a_note = label("", "muted")
         c.body.addLayout(hbox(self.a_search, self.a_note))
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Assignment", "Due"])
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Assignment", "Due", "File name"])
+        self.table.horizontalHeaderItem(2).setToolTip(
+            "The assignment part of each file name. Double-click to change it.")
         self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.setEditTriggers(QAbstractItemView.DoubleClicked
+                                   | QAbstractItemView.EditKeyPressed
+                                   | QAbstractItemView.AnyKeyPressed)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
+        self.table.setColumnWidth(2, 240)
         self.table.setMinimumHeight(200)
-        self.table.itemChanged.connect(self._changed)
+        self.table.itemChanged.connect(self._item_changed)
         c.body.addWidget(self.table)
+        c.body.addWidget(label("File name: double-click to change it for an assignment. "
+                               "Clear it to go back to the assignment's name.", "muted",
+                               wrap=True))
         return c
 
     def _sections_card(self) -> Card:
@@ -113,9 +127,15 @@ class GradeFilesMakeView(View):
         c.body.addWidget(box)
         return c
 
-    def _term_card(self) -> Card:
+    def _names_card(self) -> Card:
         c = Card()
-        c.body.addWidget(label("3. Academic year and semester", "h2"))
+        c.body.addWidget(label("3. File names", "h2"))
+        self.prefix = prefix_combo("Section part of the file name")
+        self.prefix.currentIndexChanged.connect(self._naming_edited)
+        c.body.addLayout(hbox(label("Starts with"), self.prefix, None))
+        self.use_term = QCheckBox("Add the academic year and semester")
+        self.use_term.toggled.connect(self._naming_edited)
+        c.body.addWidget(self.use_term)
         self.ay = QLineEdit()
         self.ay.setPlaceholderText("e.g. 27")
         self.ay.setAccessibleName("Academic year, two digits")
@@ -127,9 +147,15 @@ class GradeFilesMakeView(View):
         for w in (self.ay, self.term):
             w.setMaximumWidth(90)
             w.textEdited.connect(self._term_edited)
-        c.body.addLayout(hbox(label("AY"), self.ay, label("Semester"), self.term, None))
+        self.ay_label, self.term_label = label("AY"), label("Semester")
+        c.body.addLayout(hbox(self.ay_label, self.ay, self.term_label, self.term, None))
         self.term_note = label("", "muted", wrap=True)
         c.body.addWidget(self.term_note)
+        c.body.addWidget(label("These files will be made", "muted"))
+        self.names_preview = label("", "", wrap=True)
+        self.names_preview.setObjectName("namesPreview")
+        self.names_preview.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        c.body.addWidget(self.names_preview)
         return c
 
     def _where_card(self) -> Card:
@@ -155,6 +181,7 @@ class GradeFilesMakeView(View):
     def enter(self, **kw):
         course = self.session.course
         self._show_folder()
+        self._fill_naming(course)
         self._fill_term(course)
         if self.loaded_for != course.id:
             self.loaded_for, self.roster, self.lists_at = None, None, None
@@ -193,9 +220,95 @@ class GradeFilesMakeView(View):
         self._changed()
 
     def term_ok(self) -> bool:
+        """AY and semester are needed only when they go into the names."""
+        if not self.use_term.isChecked():
+            return True
         return self.ay.hasAcceptableInput() and self.term.hasAcceptableInput()
 
+    # ---- file names ----
+    def _fill_naming(self, course):
+        n = course_naming(self.session.settings, course.id)
+        self.bases = {int(k): v for k, v in n["bases"].items()}
+        self.prefix.blockSignals(True)
+        self.use_term.blockSignals(True)
+        i = self.prefix.findData(n["prefix"])
+        self.prefix.setCurrentIndex(i if i >= 0 else 0)
+        self.use_term.setChecked(bool(n["term"]))
+        self.prefix.blockSignals(False)
+        self.use_term.blockSignals(False)
+
+    def _save_naming(self):
+        cid = str(self.session.course.id)
+        every = dict(self.session.settings.course_naming or {})
+        every[cid] = {"prefix": self.prefix.currentData(), "term": self.use_term.isChecked(),
+                      "bases": {str(k): v for k, v in self.bases.items()}}
+        self.session.settings.course_naming = every
+        self.session.save()
+
+    def _naming_edited(self, *_):
+        self._save_naming()
+        self._term_text()
+        self._changed()
+
+    def _item_changed(self, item):
+        if item.column() == 2:
+            self._base_edited(item)
+        self._changed()
+
+    def _base_edited(self, item):
+        """A base name typed in: cleaned for disk; blank or the default forgets it."""
+        aid = item.data(Qt.UserRole)
+        default = base_name(item.data(Qt.UserRole + 1) or str(aid))
+        typed = (item.text() or "").strip()
+        clean = base_name(typed) if typed else default
+        if clean == default:
+            self.bases.pop(aid, None)
+        else:
+            self.bases[aid] = clean
+        self.table.blockSignals(True)
+        item.setText(clean)
+        item.setToolTip("" if clean == default else f"Changed from {default}")
+        self.table.blockSignals(False)
+        self._save_naming()
+
+    def naming(self) -> Naming:
+        if self.use_term.isChecked() and self.term_ok():
+            return Naming(self.prefix.currentData(), self.ay.text()[-2:], self.term.text())
+        return Naming(self.prefix.currentData())
+
+    def planned(self) -> list[str]:
+        """Every file name the chosen assignments and sections will make."""
+        if self.roster is None:
+            return []
+        rows = {self.table.item(r, 0).data(Qt.UserRole): self.table.item(r, 0).text()
+                for r in range(self.table.rowCount())}
+        chosen = [{"id": a, "name": rows.get(a, "")} for a in self.chosen_assignments()]
+        labels = batch_labels(chosen, self.bases)
+        out = []
+        for a in chosen:
+            names, _ = planned_names(self.roster, self.roster.instructors,
+                                     self.chosen_sections(), labels[a["id"]], self.naming())
+            out += sorted(names.values(), key=str.casefold)
+        return out
+
+    def _preview_names(self):
+        names = self.planned()
+        if not names:
+            text = "<span style='color:#5E574C'>Pick assignments and sections to see the " \
+                   "file names.</span>"
+        else:
+            text = "<br>".join(names[:SHOWN_NAMES])
+            if len(names) > SHOWN_NAMES:
+                text += f"<br><span style='color:#5E574C'>… and {len(names) - SHOWN_NAMES} more</span>"
+        if self.use_term.isChecked() and not self.term_ok():
+            text = "<span style='color:#5E574C'>Enter the academic year and semester, or " \
+                   "untick them, to see the file names.</span>"
+        self.names_preview.setText(text)
+
     def _term_text(self):
+        on = self.use_term.isChecked()
+        for w in (self.ay, self.term, self.ay_label, self.term_label, self.term_note):
+            w.setVisible(on)
         name = self.term_name or "(no term name)"
         if self.term_parsed and (self.ay.text()[-2:], self.term.text()) == self.term_parsed:
             note = f"From the course term “{name}”. Change them if that's wrong."
@@ -206,12 +319,9 @@ class GradeFilesMakeView(View):
             note = (f"Painter can't read these from the course term “{name}”. Enter the "
                     "two-digit academic year and the semester number (as --ay 27 --term 1 "
                     "on the command line); Painter remembers them for this course.")
-        if self.term_ok():
-            note += "  Files are named like " + grade_file_name(
-                "A1", "DATE", self.ay.text()[-2:], self.term.text()) + "."
         self.term_note.setText(note)
         for w in (self.ay, self.term):
-            w.setProperty("invalid", not w.hasAcceptableInput())
+            w.setProperty("invalid", on and not w.hasAcceptableInput())
             w.style().unpolish(w)
             w.style().polish(w)
 
@@ -316,7 +426,15 @@ class GradeFilesMakeView(View):
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked if a.id in ticked else Qt.Unchecked)
             self.table.setItem(r, 0, it)
-            self.table.setItem(r, 1, due_item(a.due))
+            due = due_item(a.due)
+            due.setFlags(due.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(r, 1, due)
+            base = QTableWidgetItem(self.bases.get(a.id) or base_name(a.name or str(a.id)))
+            base.setData(Qt.UserRole, a.id)
+            base.setData(Qt.UserRole + 1, a.name)
+            base.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+            base.setToolTip("Double-click to change the file name for this assignment")
+            self.table.setItem(r, 2, base)
         self.table.resizeRowsToContents()
         self.table.blockSignals(False)
         self.roster = roster
@@ -393,6 +511,7 @@ class GradeFilesMakeView(View):
             if n else ""))
         self.make_btn.setEnabled(bool(n) and self.term_ok() and self.folder() is not None
                                  and not self.maker.running)
+        self._preview_names()
 
     # ---- making ----
     def missing(self) -> str:
@@ -413,9 +532,14 @@ class GradeFilesMakeView(View):
             return
         if self.maker.running:
             return
+        on = self.use_term.isChecked()
         req = GradeFilesBatch(self.session.course.id, self.folder(),
                               tuple(self.chosen_assignments()), tuple(self.chosen_sections()),
-                              self.force.isChecked(), self.ay.text()[-2:], self.term.text())
+                              self.force.isChecked(),
+                              self.ay.text()[-2:] if on else None,
+                              self.term.text() if on else None,
+                              prefix_style=self.prefix.currentData(), include_term=on,
+                              bases=dict(self.bases))
         self.make_btn.setEnabled(False)
         self.done.set("info", "Making grade files…", "Reading the roster and instructors.")
         self.maker.start(make_grade_files_for, self.session.canvas, req)

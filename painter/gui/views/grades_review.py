@@ -119,7 +119,7 @@ class GradesReviewView(View):
         self.page.addWidget(heading("Review before posting",
                                     "Checked against Canvas just now. Nothing has been sent.")[0])
         steps = StepBar()
-        steps.set(2)
+        steps.set(3)
         self.page.addWidget(steps)
         self.errors = Banner()
         self.page.addWidget(self.errors)
@@ -132,7 +132,7 @@ class GradesReviewView(View):
         self.post_btn = button("Post…", "primary", self.post)
         self.blocked = label("", "muted", wrap=True)
         foot.body.addLayout(hbox(self.foot_text,
-                                 button("Back", "", lambda: self.win.go("grades_pick")),
+                                 button("Back", "", lambda: self.win.go("grades_preview")),
                                  self.post_btn))
         foot.body.addWidget(self.blocked)
         self.page.addWidget(foot)

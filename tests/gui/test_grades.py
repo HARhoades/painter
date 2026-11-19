@@ -23,8 +23,11 @@ def gfile(tmp_path, text=GRADES, name="A2-DATE_Grading-27-1.txt"):
 
 
 def check(window, pick, qtbot):
+    pick.check()                                   # Files -> Preview and edit
+    preview = window.views["grades_preview"]
+    assert window.current is preview
     with qtbot.waitSignal(window.runner.finished, timeout=5000):
-        pick.check()
+        preview.check()                            # Preview -> Review (reads Canvas)
     return window.views["grades_review"]
 
 

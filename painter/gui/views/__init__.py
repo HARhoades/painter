@@ -21,6 +21,11 @@ class View(QWidget):
     def enter(self, **kw) -> None:
         pass
 
+    def unsaved_ok(self, closing: bool = False) -> bool:
+        """Called before the window shows another screen: False stays here
+        (the view has asked about, and kept, changes not saved yet)."""
+        return True
+
     def leave_ok(self) -> bool:
         """False to keep the user here (e.g. a run is going)."""
         return True
@@ -35,7 +40,9 @@ def all_views():
     from painter.gui.views.download_setup import DownloadSetupView
     from painter.gui.views.grade_files_make import GradeFilesMakeView
     from painter.gui.views.grades_pick import GradesPickView
+    from painter.gui.views.grades_preview import GradesPreviewView
     from painter.gui.views.grades_result import GradesResultView
     from painter.gui.views.grades_review import GradesReviewView
     return [ConnectView, HomeView, DownloadSetupView, DownloadRunView, DownloadDoneView,
-            GradeFilesMakeView, GradesPickView, GradesReviewView, GradesResultView]
+            GradeFilesMakeView, GradesPickView, GradesPreviewView, GradesReviewView,
+            GradesResultView]

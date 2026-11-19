@@ -142,6 +142,8 @@ QCheckBox, QRadioButton { spacing: 10px; }
 QCheckBox::indicator, QRadioButton::indicator { width: 18px; height: 18px; border: 2px solid #7A705F; background: #FFFFFF; }
 QCheckBox::indicator { border-radius: 5px; }
 QRadioButton::indicator { border-radius: 11px; }
+QCheckBox:disabled { color: ${muted}; }
+QCheckBox::indicator:disabled { border-color: ${line}; background: ${well}; }
 QCheckBox::indicator:checked { background: ${primary}; border-color: ${ink}; image: url("${check_icon}"); }
 QRadioButton::indicator:checked { background: ${primary}; border: 5px solid ${ink}; }
 QProgressBar { background: ${surface}; border: 2px solid ${ink}; border-radius: 12px; min-height: 22px;
@@ -179,6 +181,11 @@ QFrame#drop { border: 2px dashed ${secondary}; background: ${secondary_tint}; ${
 QFrame#row[state="selected"] { background: ${primary_tint}; border: 2px solid ${primary}; ${brush} }
 QFrame#row { background: ${surface}; border: 1px solid ${line}; border-radius: 12px; }
 QFrame#row:hover { border-color: ${field_border}; }
+QFrame#student { background: #FFFFFF; border: 1px solid ${line}; border-radius: 12px; }
+QFrame#student[state="missing"] { background: ${highlight_tint}; border: 2px solid ${highlight}; }
+QFrame#student[state="changed"] { background: ${primary_tint}; border: 2px solid ${primary}; }
+QPlainTextEdit#comment { background: #FFFFFF; border: 1px solid ${field_border}; border-radius: 10px; padding: 4px; }
+QPlainTextEdit#comment:focus { border: 2px solid ${ink}; }
 QFrame#summary { background: ${surface}; border: 2px solid ${primary}; border-radius: 14px; }
 QDialog { background: ${surface}; }
 QToolTip { background: ${ink}; color: #FFFFFF; border: 0; padding: 4px 8px; }

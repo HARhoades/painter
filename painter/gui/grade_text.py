@@ -1,6 +1,7 @@
 """How a planned grade reads on screen (pure functions, easy to test)."""
 from __future__ import annotations
 
+from painter.services.grade_files import overlapping
 from painter.services.grading import GradePlan, GradePlanSet, PlannedGrade
 
 
@@ -53,3 +54,18 @@ def summary(plans: GradePlanSet) -> dict:
         "manual": any(manual_posting(p) for p in plans.plans),
         "files": len(plans.plans),
     }
+
+
+def overlap_text(files) -> str:
+    """Words for grade files that cover the same assignment and section, or ""."""
+    lines = []
+    for group in overlapping(files):
+        names = ", ".join(gf.path.name for gf in group)
+        g = group[0]
+        lines.append(f"{names}: all for {g.assignment_title or g.assignment_id}, section "
+                     f"{g.section_title or g.section_id or '(none)'}.")
+    if not lines:
+        return ""
+    return ("<br>".join(lines) + "<br>All of them would be posted: for a student in more "
+            "than one, the later file's grade replaces the earlier, and different comments "
+            "are all added. Remove the files you don't mean to post.")

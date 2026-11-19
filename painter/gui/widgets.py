@@ -363,7 +363,7 @@ def grow(layout, index: int = 0):
 
 
 class StepBar(QWidget):
-    def __init__(self, names=("Files", "Review", "Post and verify")):
+    def __init__(self, names=("Files", "Preview and edit", "Review", "Post and verify")):
         super().__init__()
         self.labels = [QLabel() for _ in names]
         self.names = names

@@ -104,6 +104,10 @@ class Settings:
     options: dict = field(default_factory=dict)     # download option defaults
     course_terms: dict = field(default_factory=dict)  # course id -> {"ay", "term"} typed in
     course_folders: dict = field(default_factory=dict)  # course id -> grade-files folder chosen
+    grade_naming: dict = field(default_factory=dict)    # defaults: {"prefix", "term"}
+    course_naming: dict = field(default_factory=dict)   # course id -> {"prefix", "term",
+                                                        #   "bases": {assignment id: base}}
+    confirm_save: bool = True                       # ask before saving edits to grade files
     extra: dict = field(default_factory=dict)       # keys this version doesn't know
 
 
@@ -136,3 +140,23 @@ def save_settings(settings: Settings, path: Path | None = None) -> Path:
     with atomic_write(path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
     return path
+
+
+# ---- how grade files are named (Make grade files; defaults in Settings) ----
+NAMING_DEFAULTS = {"prefix": "short", "term": True}
+
+
+def naming_defaults(settings: Settings) -> dict:
+    """The prefix style and AY/semester choice for a course with none of its own."""
+    d = dict(NAMING_DEFAULTS)
+    d.update({k: v for k, v in (settings.grade_naming or {}).items() if k in d})
+    return d
+
+
+def course_naming(settings: Settings, course_id) -> dict:
+    """{"prefix", "term", "bases"} for one course: its own choices over the defaults."""
+    own = (settings.course_naming or {}).get(str(course_id)) or {}
+    d = naming_defaults(settings)
+    d.update({k: own[k] for k in ("prefix", "term") if k in own})
+    d["bases"] = dict(own.get("bases") or {})
+    return d

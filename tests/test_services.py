@@ -32,8 +32,8 @@ def test_grade_files(canvas, tmp_path, capsys):
     from painter.services.grade_files import GradeFilesRequest, make_grade_files
     rep = RecordingReporter()
     res = make_grade_files(canvas, GradeFilesRequest(100, tmp_path, assignment_ids=(7001,)), rep)
-    assert sorted(p.name for p in res.written) == ["A1-DATE_Grading-27-1.txt",
-                                                   "A2-DATE_Grading-27-1.txt"]
+    assert sorted(p.name for p in res.written) == ["A1-DATE-Scenario-27-1.txt",
+                                                   "A2-DATE-Scenario-27-1.txt"]
     again = make_grade_files(canvas, GradeFilesRequest(100, tmp_path, assignment_ids=(7001,)))
     assert again.written == [] and len(again.kept) == 2
     with pytest.raises(InvalidInput, match="--label"):
