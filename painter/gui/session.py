@@ -9,7 +9,9 @@ from PySide6.QtCore import QObject, Signal
 
 from painter import credentials as default_store
 from painter.canvas.client import Canvas, check_base_url
-from painter.config import Settings, cache_root, load_settings, save_settings
+from painter.config import (
+    Settings, cache_root, default_grades_root, load_settings, save_settings,
+)
 from painter.services.courses import CourseInfo, identify, list_courses
 from painter.storage.cache import CacheStore, Entry
 
@@ -28,13 +30,16 @@ class Session(QObject):
     course_changed = Signal(object)       # CourseInfo | None
 
     def __init__(self, settings_path: Path | None = None, env=None, store=default_store,
-                 cache_dir: Path | None = None):
+                 cache_dir: Path | None = None, grades_dir: Path | None = None):
         super().__init__()
         self.settings_path = settings_path
         # A session given its own settings file keeps its cache beside it, so
         # tests and side-by-side setups never share one.
         self.cache = CacheStore(cache_dir or (Path(settings_path).parent / "cache"
                                               if settings_path else cache_root()))
+        # Where Make grade files saves and Post grades looks (gitignored grade-files/).
+        self.grades_root = Path(grades_dir or (Path(settings_path).parent / "grade-files"
+                                               if settings_path else default_grades_root()))
         self.user_id: int | None = None
         self.courses_at: datetime | None = None
         self.settings: Settings = load_settings(settings_path)

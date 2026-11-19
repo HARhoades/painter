@@ -38,7 +38,7 @@ def app_data_dir(env=None, platform: str | None = None) -> Path:
 # Folders (relative to the checkout) that .gitignore keeps out of git. Student
 # work and local caches live only in these; tests keep this list and
 # .gitignore in step.
-IGNORED_DIRS = ("submissions", ".painter-cache")
+IGNORED_DIRS = ("submissions", ".painter-cache", "grade-files")
 
 
 def project_root() -> Path | None:
@@ -53,6 +53,14 @@ def default_download_root() -> Path:
     ignored submissions/ folder, so student work can't be committed by accident."""
     root = project_root()
     return root / IGNORED_DIRS[0] if root else Path.home() / "Documents" / "Painter"
+
+
+def default_grades_root() -> Path:
+    """Where the window keeps grade files: the checkout's ignored grade-files/
+    folder (filled-in files hold grades and names, so they are never committed),
+    else Documents/Painter/grade-files."""
+    root = project_root()
+    return root / IGNORED_DIRS[2] if root else Path.home() / "Documents" / "Painter" / "grade-files"
 
 
 def cache_root() -> Path:
@@ -94,6 +102,8 @@ class Settings:
     grades_folder: str = ""
     credential_id: str = ""                         # saved-token id last used, or "env"
     options: dict = field(default_factory=dict)     # download option defaults
+    course_terms: dict = field(default_factory=dict)  # course id -> {"ay", "term"} typed in
+    course_folders: dict = field(default_factory=dict)  # course id -> grade-files folder chosen
     extra: dict = field(default_factory=dict)       # keys this version doesn't know
 
 

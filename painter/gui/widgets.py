@@ -431,3 +431,67 @@ def clear(layout: QLayout) -> None:
             item.widget().deleteLater()
         elif item.layout():
             clear(item.layout())
+
+
+def words_match(query: str, *fields) -> bool:
+    """Every word typed appears somewhere in the fields (any order, any case)."""
+    hay = " ".join(str(f) for f in fields if f is not None).lower()
+    return all(w in hay for w in query.lower().split())
+
+
+class SearchBox(QLineEdit):
+    """The search bar over a list: type to narrow it, Esc or ✕ to clear."""
+
+    def __init__(self, what: str):
+        super().__init__()
+        self.setPlaceholderText(f"Search {what}")
+        self.setAccessibleName(f"Search {what}")
+        self.setClearButtonEnabled(True)
+        self.addAction(QIcon(str(ICON_DIR / "search.svg")), QLineEdit.LeadingPosition)
+        self.setObjectName("search")
+
+    def keyPressEvent(self, e):                   # noqa: N802 (Qt name)
+        if e.key() == Qt.Key_Escape and self.text():
+            self.clear()
+            return
+        super().keyPressEvent(e)
+
+    def matches(self, *fields) -> bool:
+        return words_match(self.text(), *fields)
+
+    @property
+    def active(self) -> bool:
+        return bool(self.text().strip())
+
+
+def hidden_note(chosen_hidden: int, what: str = "chosen") -> str:
+    n = chosen_hidden
+    return f"{n} {what} not shown" if n else ""
+
+
+SEARCH_ROLE = Qt.UserRole + 7      # what a cell offers to the search, when not its text
+
+
+def due_item(due: str | None):
+    """A Due cell: "No due date" is shown but isn't searchable text."""
+    from PySide6.QtWidgets import QTableWidgetItem
+    it = QTableWidgetItem(due or "No due date")
+    it.setData(SEARCH_ROLE, due or "")
+    return it
+
+
+def filter_rows(table, box: SearchBox, *also_cols: int) -> str:
+    """Hide the rows of a checkable table that don't match the search (column 0
+    plus also_cols); returns a note: "no matches" or "N chosen not shown"."""
+    shown, chosen_hidden = 0, 0
+    for r in range(table.rowCount()):
+        cells = [table.item(r, c) for c in (0, *also_cols)]
+        ok = box.matches(*(c.text() if c.data(SEARCH_ROLE) is None else c.data(SEARCH_ROLE)
+                           for c in cells if c is not None))
+        table.setRowHidden(r, not ok)
+        shown += ok
+        first = cells[0]
+        chosen_hidden += (not ok and first is not None and first.checkState() == Qt.Checked)
+    if box.active and table.rowCount() and not shown:
+        return "No matches"
+    return hidden_note(chosen_hidden)

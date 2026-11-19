@@ -28,7 +28,7 @@ def overall_fraction(done: int, prior: int, stage_total: int, expected: int | No
         total = max(expected, prior + stage_total, done)
         return min(done / total, 1.0), total
     if steps:
-        inner = stage_done / stage_total if stage_total else 1.0
+        inner = stage_done / stage_total if stage_total else 0.0   # nothing known yet: 0%
         return min(((step - 1) + inner) / steps, 1.0), None
     return 0.0, None
 

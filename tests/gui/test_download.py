@@ -35,7 +35,8 @@ def tick(v, aid):
 def test_setup_lists_assignments_and_sections(setup):
     v = setup
     assert v.table.rowCount() == 2
-    assert sorted(b._label for b in v.picker.section_buttons.values()) == ["A1-8  (1)", "A2-8  (2)"]
+    assert sorted(b._label for b in v.picker.section_buttons.values()) == ["A1-8  (1)  ·  Rhoades",
+                                                                     "A2-8  (2)  ·  Smith"]
     assert v.missing() == "Pick at least one assignment."
 
 

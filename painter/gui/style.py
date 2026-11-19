@@ -92,6 +92,9 @@ QPushButton[role="link"] { border: 0; min-height: 0; padding: 0; text-decoration
 QPushButton[role="link"]:hover { background: transparent; color: ${highlight}; }
 QPushButton[role="icon"] { min-height: 24px; max-height: 24px; min-width: 24px; padding: 0 6px;
   border-radius: 12px; border: 1px solid ${field_border}; font-size: 13px; font-weight: 600; }
+QPushButton:disabled { color: ${muted}; border-color: ${line}; }
+QPushButton[role="primary"]:disabled { background: ${well}; color: ${muted}; border-color: ${line}; }
+QPushButton[role="link"]:disabled { color: ${muted}; }
 QPushButton[role="icon"]:disabled { color: ${muted}; border-color: ${line}; }
 QLabel#tag { font-size: 12px; color: ${muted}; }
 QLabel#tag[kind="checking"] { font-style: italic; }
@@ -112,6 +115,7 @@ QLineEdit, QComboBox, QDateEdit { min-height: 38px; padding: 0 10px; border: 1px
   border-radius: 10px; background: #FFFFFF; }
 QComboBox, QDateEdit { padding: 0 38px 0 10px; }
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QComboBox:on { border: 2px solid ${ink}; }
+QLineEdit[invalid="true"] { border: 2px solid ${highlight}; background: ${highlight_tint}; }
 QDateEdit QLineEdit { border: 0; background: transparent; min-height: 0; padding: 0; }
 QComboBox::drop-down, QDateEdit::drop-down { subcontrol-origin: border; subcontrol-position: center right;
   width: 34px; border: 0; border-left: 1px solid ${line}; background: transparent;

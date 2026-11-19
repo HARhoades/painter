@@ -13,7 +13,10 @@ from painter.gui.style import build_qss, load_fonts
 from painter.gui.widgets import Logo, button, hbox, label
 from painter.gui.worker import TaskRunner
 
-LATER = ["Roster CSV", "Organize by section", "Make grade files", "Quiz export", "Quiz uploads"]
+LATER = ["Roster CSV", "Organize by section", "Quiz export", "Quiz uploads"]
+TASKS = (("download", "Download submissions", "download_setup", "Downloading…"),
+         ("gradefiles", "Make grade files", "grade_files_make", "Making grade files…"),
+         ("grades", "Post grades", "grades_pick", "Working on grades…"))
 
 
 class MainWindow(QMainWindow):
@@ -79,8 +82,7 @@ class MainWindow(QMainWindow):
         self.nav = {}
         group = QButtonGroup(self)
         group.setExclusive(True)
-        for key, text, view in (("download", "Download submissions", "download_setup"),
-                                ("grades", "Post grades", "grades_pick")):
+        for key, text, view, _busy in TASKS:
             b = button(text, "", lambda _=False, v=view: self._nav(v))
             b.setObjectName("nav")
             b.setCheckable(True)
@@ -107,8 +109,7 @@ class MainWindow(QMainWindow):
         cur = self.current.section if self.current else None
         for key, b in self.nav.items():
             b.setEnabled(not on or key == cur)
-            base = {"download": "Download submissions", "grades": "Post grades"}[key]
-            busy = {"download": "Downloading…", "grades": "Working on grades…"}[key]
+            base, busy = next((t[1], t[3]) for t in TASKS if t[0] == key)
             b.setText(busy if on and key == cur else f"{base} (later)" if on else base)
             b.setToolTip("Available after the current task finishes" if on and key != cur else "")
         self.course_btn.setEnabled(not on)

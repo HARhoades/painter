@@ -150,3 +150,10 @@ class StudentMatcher:
             ("name", {k: next(iter(v)) for k, v in by_name.items() if len(v) == 1},
              letters_key),
         ]
+
+
+def search_text(user: dict) -> str:
+    """Everything a person might type to find a student in a list: names, SIS ID,
+    login and Canvas ID (the window's search bars)."""
+    return " ".join(str(user.get(k) or "") for k in
+                    ("name", "sortable_name", "sis_user_id", "login_id", "id"))

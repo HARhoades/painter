@@ -52,3 +52,5 @@ manifest.csv
 # course lists, assignments, rosters and file counts (see the phase 6 plan).
 /submissions/
 /.painter-cache/
+# Grade files made and read by the window (names, and grades once filled in).
+/grade-files/

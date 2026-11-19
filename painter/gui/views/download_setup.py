@@ -14,13 +14,14 @@ from PySide6.QtWidgets import (
 from painter.config import default_download_root, exposed_in_repo
 from painter.domain.naming import slug
 from painter.domain.freshness import Freshness, classify, needs_check, oldest
-from painter.domain.roster import Roster
+from painter.domain.roster import Roster, section_instructors
+from painter.errors import CanvasHTTPError
 from painter.gui.problems import short_reason
 from painter.gui.student_picker import StudentPicker
 from painter.gui.views import View
 from painter.gui.widgets import (
-    Banner, Card, FolderPicker, FoldButton, FreshnessTag, button, heading, hbox, label,
-    show_problem,
+    Banner, Card, FolderPicker, FoldButton, FreshnessTag, SearchBox, button, due_item,
+    filter_rows, heading, hbox, label, show_problem,
 )
 from painter.gui.worker import TaskRunner
 from painter.services.snapshots import (
@@ -37,8 +38,14 @@ ZONES = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_A
 
 
 def load_choices(canvas, course_id: int, tz: str | None):
-    """Worker thread: what the screen needs from Canvas."""
-    return assignment_listing(canvas, course_id, tz), Roster.load(canvas, course_id)
+    """Worker thread: what the screen needs from Canvas. Instructors are a
+    nicety for filtering sections: if Canvas won't list them, there's no filter."""
+    roster = Roster.load(canvas, course_id)
+    try:
+        roster.instructors = section_instructors(canvas, course_id)
+    except CanvasHTTPError:
+        roster.instructors = {}
+    return assignment_listing(canvas, course_id, tz), roster
 
 
 DAMAGED = (KeyError, TypeError, ValueError, AttributeError)    # a cache entry that won't read
@@ -79,10 +86,15 @@ class DownloadSetupView(View):
     def _assignments_card(self) -> Card:
         a = Card()
         self.a_head = label("1. Assignments", "h2")
-        a.body.addLayout(hbox(self.a_head, None, button("Select all", "link", self._select_all)))
+        self.a_all = button("Select all", "link", self._select_all)
+        a.body.addLayout(hbox(self.a_head, None, self.a_all))
         self.a_tag = FreshnessTag("Check the assignment list with Canvas now")
         self.a_tag.refresh_requested.connect(self.refresh_lists)
         a.body.addWidget(self.a_tag)
+        self.a_search = SearchBox("assignments")
+        self.a_search.textChanged.connect(self._assignments_changed)
+        self.a_note = label("", "muted")
+        a.body.addLayout(hbox(self.a_search, self.a_note))
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Assignment", "Due", "Submitted"])
         self.table.verticalHeader().setVisible(False)
@@ -349,10 +361,11 @@ class DownloadSetupView(View):
                 name.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
                 name.setCheckState(Qt.Checked if a.id in ticked else Qt.Unchecked)
             self.table.setItem(r, 0, name)
-            self.table.setItem(r, 1, QTableWidgetItem(a.due or "No due date"))
+            self.table.setItem(r, 1, due_item(a.due))
             self.table.setItem(r, 2, QTableWidgetItem("—"))
         self.table.resizeRowsToContents()
         self.table.blockSignals(False)
+        filter_rows(self.table, self.a_search, 1)
 
     def _tags(self, *_):
         """Refresh the three "how old is this" tags."""
@@ -378,12 +391,15 @@ class DownloadSetupView(View):
         self.table.blockSignals(True)
         for r in range(self.table.rowCount()):
             it = self.table.item(r, 0)
-            if it.flags() & Qt.ItemIsUserCheckable:
+            if it.flags() & Qt.ItemIsUserCheckable and not self.table.isRowHidden(r):
                 it.setCheckState(Qt.Checked)
         self.table.blockSignals(False)
         self._assignments_changed()
 
     def _assignments_changed(self, *_):
+        hidden = filter_rows(self.table, self.a_search, 1)
+        self.a_note.setText(hidden)
+        self.a_all.setText("Select all shown" if self.a_search.active else "Select all")
         n = len(self.chosen_assignments())
         self.a_head.setText(f"1. Assignments   ·   {n} of "
                             f"{sum(not a.new_quiz for a in self.assignments)} selected")

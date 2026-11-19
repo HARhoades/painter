@@ -42,7 +42,8 @@ def test_real_cache_and_download_paths_are_ignored_by_git():
     from painter.storage.cache import KINDS, CacheStore
     store = CacheStore(ROOT / ".painter-cache")
     names = [store.path(k, "host_1_100").relative_to(ROOT).as_posix() for k in KINDS]
-    names.append("submissions/AI105-27-1/Doe_Jane/work.docx")
+    names += ["submissions/AI105-27-1/Doe_Jane/work.docx",
+              "grade-files/AI105-27-1/A1-DATE_Grading-27-1.txt"]
     out = subprocess.run(["git", "check-ignore", *names], cwd=ROOT, text=True,
                          capture_output=True)
     if out.returncode == 128:                          # not a git checkout (e.g. a source zip)

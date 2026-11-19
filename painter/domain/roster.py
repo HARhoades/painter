@@ -42,6 +42,9 @@ class Roster:
         self.users: dict[int, dict] = {}
         self.sections_of_user: dict[int, list[int]] = {}
         self.users_of_section: dict[int, set[int]] = {s["id"]: set() for s in sections}
+        # Section id -> instructor surnames; filled in by the window (see
+        # section_instructors), empty when not asked for or not allowed.
+        self.instructors: dict[int, list[str]] = {}
 
         for enr in enrollments:
             uid = enr.get("user_id")
@@ -79,7 +82,8 @@ class Roster:
         return {"sections": self.sections,
                 "users": {str(u): {k: v for k, v in user.items() if k in self.USER_FIELDS}
                           for u, user in self.users.items()},
-                "sections_of_user": {str(u): s for u, s in self.sections_of_user.items()}}
+                "sections_of_user": {str(u): s for u, s in self.sections_of_user.items()},
+                "instructors": {str(s): names for s, names in self.instructors.items()}}
 
     @classmethod
     def from_data(cls, data: dict) -> "Roster":
@@ -95,7 +99,9 @@ class Roster:
                 if user.get("sis_user_id"):
                     enr["sis_user_id"] = user["sis_user_id"]
                 enrollments.append(enr)
-        return cls(list(data["sections"]), enrollments)
+        roster = cls(list(data["sections"]), enrollments)
+        roster.instructors = {int(s): list(n) for s, n in (data.get("instructors") or {}).items()}
+        return roster
 
     def section_names(self, user_id: int) -> list[str]:
         return [self.section_by_id.get(s, {}).get("name", str(s))

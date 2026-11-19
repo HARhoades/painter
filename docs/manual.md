@@ -464,8 +464,8 @@ belongs to the commands that use it.
 
 ## The window: painter-gui
 
-The two most common tasks, downloading submissions and posting grades, also
-run in a window. Everything else stays on the command line for now (the
+Downloading submissions, making grade files and posting grades also run in a
+window. Everything else stays on the command line for now (the
 sidebar lists those tasks as "later").
 
 ```
@@ -490,6 +490,14 @@ pressing it again ("Close settings") returns to your courses.
 first, with a filter by name, term and role. A TA can do whatever their
 Canvas role allows; when Canvas refuses something, the window says so.
 
+**Searching lists.** Every list you choose from has a search bar: the
+assignments, the sections (by section name or instructor), the students under
+"Choose individual students" (by name, SIS ID, login or Canvas ID), and the
+saved grade files in Post grades. Type any words in any order; Esc or ✕
+clears it. "Select all" then reads "Select all shown" and picks only what
+matches, and a note says when something you chose is hidden by the search
+("1 chosen not shown"); it stays chosen.
+
 **Download submissions.**
 1. Tick assignments. New Quizzes are listed but can't be ticked: their file
    uploads come via `painter quiz uploads`.
@@ -505,7 +513,11 @@ Canvas role allows; when Canvas refuses something, the window says so.
    you pick a folder inside the Painter folder that git would not ignore.
 
 "Select all" above the section chips chooses every section at once (it
-becomes "Clear all" when every section is chosen).
+becomes "Clear all" when every section is chosen). Each chip shows the
+section's instructor, and the "Instructor" list shows only that instructor's
+sections; "Select all for <name>" then picks all of theirs. Sections chosen
+earlier stay chosen while hidden, and a note says how many. If Canvas
+doesn't list instructors to you, there is no filter.
 
 While you choose, the window counts the files a download would fetch. The
 running screen shows one progress bar for the whole download, filled by the
@@ -517,6 +529,16 @@ command line prints. "Stop after this file" stops cleanly: the manifest and
 log are written and running again picks up where it left off. The finished
 screen lists what failed and why, and opens the folder, Excel log and
 manifest.
+
+When the download finishes, "Details: lateness and submissions" gives one
+line (how many submissions, how many late and the longest, how many
+submitted more than once) and opens to two tables: one row per assignment,
+and one per student with the section, when they submitted, how many
+submissions Canvas has from them, how late (or "excused") and how many
+files. The student table sorts by any heading (latest first to start) and
+has "Late only". It comes from the same rows as the manifest and Excel log;
+scores are not shown. The progress bar starts at 0% and fills as files
+arrive.
 
 **Saved course data.** So screens open at once, Painter keeps the last
 assignment list, roster and per-student file counts for each course on this
@@ -542,8 +564,30 @@ data" to delete these files; downloaded submissions are not touched.
 **Buttons** that use the beige colouring lighten or darken slightly when the
 pointer is over them.
 
+**Make grade files.** Tick one or more assignments and one or more sections
+(each list has "Select all"), and Painter writes one blank file per section
+for each assignment, with every student's name and Canvas ID filled in. The
+same "Instructor" filter narrows the sections. The academic year and
+semester go into the file names (A1-DATE_Grading-27-1.txt): Painter fills
+them from the course's term name (as the command line does), and when the
+name doesn't say (e.g. "Fall 2026") they must be typed in, like
+`--ay 27 --term 1`, before files can be made. What you type is remembered for
+that course. By
+default they go in `grade-files/<course code>/` inside the Painter folder, which
+`.gitignore` keeps out of git because filled-in files hold grades (outside a
+checkout: `Documents\Painter\grade-files`). A file already there is kept
+unless you tick "Replace files that already exist", so grades you have typed
+in are never overwritten. "Saved to" takes any folder (Browse…); Painter
+remembers it for that course, warns if it is inside the Painter folder where
+git could commit it, and Post grades lists the files there too. "Use
+Painter's grade-files folder" goes back to the default. When two chosen assignments start with the same
+word, more of the name goes into the file name so they don't collide. This
+is the window's version of `painter grades new`.
+
 **Post grades.**
-1. Drop or choose grade files. Each is read at once; a file that can't be
+1. Tick files under "Saved grade files" (the grade-files folder, this
+   course first, each showing how many students are filled in), or drop or
+   choose grade files kept elsewhere. Each is read at once; a file that can't be
    read shows the line and the problem, and must be fixed or removed first.
 2. "Check against Canvas" reads only. Review shows one card per file: every
    student's grade before and after, the comment, and warnings (a grade that

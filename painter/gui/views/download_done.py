@@ -8,6 +8,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QGridLayout, QWidget
 
+from painter.gui.run_details import RunDetails
 from painter.gui.views import View
 from painter.gui.widgets import Banner, Card, button, clear, heading, hbox, label, show_problem
 
@@ -65,6 +66,8 @@ class DownloadDoneView(View):
         files.body.addLayout(hbox(self.open_folder, self.open_log, self.open_manifest,
                                   self.again, None))
         self.page.addWidget(files)
+        self.details = RunDetails()
+        self.page.addWidget(self.details)
         self.quiz = Banner()
         self.page.addWidget(self.quiz)
         self.page.addLayout(hbox(button("New download", "", lambda: self.win.go("download_setup")),
@@ -82,7 +85,7 @@ class DownloadDoneView(View):
             self.sub.setText("Files saved before the problem are kept; running it again "
                              "fetches only what is missing.")
             show_problem(self.error, error, self.win.open_settings)
-            for w in (self.problems, self.open_log, self.open_manifest):
+            for w in (self.problems, self.open_log, self.open_manifest, self.details):
                 w.setVisible(False)
             self.quiz.set("info")
             self.where.setText(str(request.out_root) if request else "")
@@ -118,6 +121,7 @@ class DownloadDoneView(View):
             self.problems_body.addWidget(label(f"{row.get('assignment')} · {row.get('filename')}"), r, 1)
             self.problems_body.addWidget(label(row["status"].split(":", 1)[-1].strip(), "muted", True), r, 2)
         self.where.setText(str(request.out_root))
+        self.details.show_rows(result.rows if result else [])
         self.open_log.setVisible(bool(result and result.log_path))
         self.open_manifest.setVisible(bool(result and result.manifest))
         self.again.setText(f"↻  Try the {len(failed)} again" if failed else "↻  Run again")
