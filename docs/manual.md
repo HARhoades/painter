@@ -249,10 +249,17 @@ characters. The instructor prefix uses the section's teacher's surname (a TA
 only where there is no teacher), and just the short prefix when a section has
 neither.
 
-Names never clash. When two sections reduce to the same prefix (A2-8 and A2-9
-are both "A2"), the second uses its full section name (and its section ID if
-even that is taken); names that differ only in capitals count as the same,
-as they do on Windows.
+The prefix comes from the section itself. A Canvas section name such as
+`AI105    A1 8  - RHOADES, H` has the course code in front and the
+instructor behind; both are left out, so short is `A1` and full is `A1-8`.
+The course code is recognised as the word every section in the course starts
+with, or a course-number shape such as `AI105`.
+
+Names never clash. When chosen sections would share a prefix (A1 5 and A1 8
+are both "A1"), every one of them uses the longer form (`A1-5`, `A1-8`; with
+the instructor style `A1-5-Hicks`), so no file is named differently from the
+others; if even that is shared, the section ID is added. Names that differ
+only in capitals count as the same, as they do on Windows.
 
 | Option | Meaning |
 |---|---|

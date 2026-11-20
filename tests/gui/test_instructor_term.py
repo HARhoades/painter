@@ -202,3 +202,13 @@ def test_new_courses_start_from_the_settings_defaults(make):
     s.course_naming = {}
     v.enter()
     assert v.prefix.currentData() == "full" and not v.use_term.isChecked()
+
+
+def test_instructor_prefix_works_with_a_saved_roster(make):
+    """A roster read back from the cache has its section ids as text."""
+    v = make
+    v.roster.instructors = {str(k): n for k, n in v.roster.instructors.items()}
+    v.prefix.setCurrentIndex(v.prefix.findData("instructor"))
+    v.a_all.click()
+    v.s_all.click()
+    assert all("-Rhoades-" in n or "-Smith-" in n for n in v.planned())

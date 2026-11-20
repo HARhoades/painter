@@ -6,6 +6,7 @@ from painter.domain.roster import Roster, instructor_label
 from painter.services.grade_files import (
     GradeEntry, GradeFileError, grade_file_name, parse_grade_file, parse_term_name,
     render_grade_file, section_prefix, BASE_MAX, Naming, base_name, name_section_files,
+    course_lead, section_words,
 )
 from painter.services.grading import (
     PlannedGrade, grade_fields, resolve_grade_entry, verify_posted,
@@ -77,13 +78,53 @@ def test_base_name_is_safe_and_short():
 def test_section_names_never_clash():
     names, notes = name_section_files(
         [(2, "A2-9", "Lee"), (1, "A2-8", "Lee"), (3, "a2", "Kim")], "DATE", Naming("short"))
-    assert names[1] == "A2-DATE.txt"
-    assert names[2] == "A2-9-DATE.txt"
-    assert names[3].casefold() not in {names[1].casefold(), names[2].casefold()}
-    assert len(notes) == 2
+    # every section that shared "A2" gets the longer name, not just the later ones
+    assert names == {1: "A2-8-DATE.txt", 2: "A2-9-DATE.txt", 3: "a2-DATE.txt"}
+    names, _ = name_section_files([(1, "A2", ""), (2, "a2", "")], "DATE", Naming("short"))
+    assert names == {1: "A2-1-DATE.txt", 2: "a2-2-DATE.txt"}           # last resort: the id
+    assert set(notes) == {1, 2, 3}
     names, _ = name_section_files([(1, "A1-8", "Lee"), (2, "A1-9", "Lee")], "Q",
                                   Naming("instructor", "27", "1"))
-    assert names == {1: "A1-Lee-Q-27-1.txt", 2: "A1-9-Lee-Q-27-1.txt"}
+    assert names == {1: "A1-8-Lee-Q-27-1.txt", 2: "A1-9-Lee-Q-27-1.txt"}
+
+
+# Section names as West Point's Canvas writes them: course, period, section, instructor.
+REAL = [(27429, "AI105    A1 5  - HICKS, M", "Hicks"),
+        (27425, "AI105    A1 8  - RHOADES, H", "Rhoades"),
+        (27440, "AI105    A2 8  - RHOADES, H", "Rhoades"),
+        (27455, "AI105    B1 8  - RHOADES, H", "Rhoades"),
+        (27469, "AI105    B2 8  - RHOADES, H", "Rhoades")]
+
+
+def test_course_code_and_instructor_are_not_the_section():
+    assert section_words("AI105    A1 8  - RHOADES, H") == ["A1", "8"]
+    assert section_words("A1-8") == ["A1", "8"]
+    assert section_words("X1 3 - Lee", lead="X1") == ["3"]
+    assert section_prefix("AI105    A1 8  - RHOADES, H") == "A1"
+    assert section_prefix("AI105    A1 8  - RHOADES, H", "full") == "A1-8"
+    assert section_prefix("AI105    A1 8  - RHOADES, H", "instructor", "Rhoades") == \
+        "A1-Rhoades"
+    assert course_lead([n for _, n, _ in REAL]) == "AI105"
+    assert course_lead(["A1-8", "A2-8"]) == ""
+
+
+@pytest.mark.parametrize("style, want", [
+    ("short", ["A2-Build.txt", "B1-Build.txt", "B2-Build.txt"]),
+    ("instructor", ["A2-Rhoades-Build.txt", "B1-Rhoades-Build.txt", "B2-Rhoades-Build.txt"]),
+    ("full", ["A2-8-Build.txt", "B1-8-Build.txt", "B2-8-Build.txt"]),
+])
+def test_one_instructors_sections_all_named_alike(style, want):
+    """The first file is named like the rest (the bug: it came out AI105-Build)."""
+    names, notes = name_section_files(REAL[2:], "Build", Naming(style), "AI105")
+    assert sorted(names.values()) == want and not notes
+
+
+def test_shared_period_gives_every_section_the_longer_name():
+    names, notes = name_section_files(REAL, "Build", Naming("short"), "AI105")
+    assert names[27429] == "A1-5-Build.txt" and names[27425] == "A1-8-Build.txt"
+    assert names[27440] == "A2-Build.txt" and set(notes) == {27429, 27425}
+    names, _ = name_section_files(REAL, "Build", Naming("instructor"), "AI105")
+    assert names[27429] == "A1-Hicks-Build.txt" and names[27425] == "A1-Rhoades-Build.txt"
 
 
 def test_instructor_label():

@@ -39,22 +39,65 @@ PREFIX_STYLES = ("short", "full", "instructor")
 BASE_MAX = 40          # characters of the assignment part of a file name
 
 
-def section_prefix(section_name: str, style: str = "short", instructor: str = "") -> str:
+# A course-number-shaped word (AI105, CS301, MA153A): when a section name starts
+# with one, it is the course, not the section.
+COURSE_LIKE = re.compile(r"[A-Za-z]{2,}\d{3,}[A-Za-z]?")
+
+
+def section_words(section_name: str, lead: str = "") -> list[str]:
+    """The words that name the section itself.
+
+    Canvas section names often carry the course code in front and the
+    instructor behind: 'AI105    A1 8  - RHOADES, H' -> ['A1', '8']. The part
+    after ' - ' is dropped, and so is a first word that is the course (`lead`,
+    the word every section in the course starts with, or a course-number
+    shape). 'A1-8' -> ['A1', '8'].
+    """
+    name = (section_name or "").strip()
+    head = re.split(r"\s+[-–]\s+", name, maxsplit=1)[0]
+    words = [w for w in re.split(r"[\s_–-]+", head) if w]
+    if len(words) > 1 and ((lead and words[0].casefold() == lead.casefold())
+                           or COURSE_LIKE.fullmatch(words[0])):
+        words = words[1:]
+    return words or [name or "section"]
+
+
+def course_lead(section_names) -> str:
+    """The first word every section name shares (the course code), or ""."""
+    firsts = {(re.split(r"[\s_–-]+", (n or "").strip(), maxsplit=1) or [""])[0].casefold()
+              for n in section_names if (n or "").strip()}
+    names = [n for n in section_names if (n or "").strip()]
+    if len(names) < 2 or len(firsts) != 1:
+        return ""
+    return re.split(r"[\s_–-]+", names[0].strip(), maxsplit=1)[0]
+
+
+def section_prefix(section_name: str, style: str = "short", instructor: str = "",
+                   lead: str = "") -> str:
     """File name prefix from a section name.
 
-    short: 'A1-8' -> 'A1';  full: 'A1-8' -> 'A1-8';
-    instructor: 'A1-8' + 'Rhoades' -> 'A1-Rhoades' (just 'A1' without one).
+    short: 'AI105 A1 8 - RHOADES, H' -> 'A1';  full: -> 'A1-8';
+    instructor: -> 'A1-Rhoades' (just 'A1' without one).
     """
     if style not in PREFIX_STYLES:
         raise InvalidInput(f"Unknown prefix style {style!r}: use one of "
                            f"{', '.join(PREFIX_STYLES)}.")
-    name = (section_name or "").strip()
-    short = slug(re.split(r"[-–_\s]", name, maxsplit=1)[0], 20)
+    words = section_words(section_name, lead)
     if style == "full":
-        return slug(name, 30)
+        return slug("-".join(words), 30)
+    short = slug(words[0], 20)
     if style == "instructor" and (instructor or "").strip():
         return f"{short}-{slug(instructor, 20)}"
     return short
+
+
+def _longer_prefix(section_name: str, style: str, instructor: str, lead: str) -> str:
+    """The prefix used when the chosen one is shared: the full section, plus the
+    instructor for that style ('A1-8', 'A1-8-Rhoades')."""
+    full = section_prefix(section_name, "full", lead=lead)
+    if style == "instructor" and (instructor or "").strip():
+        full = f"{full}-{slug(instructor, 20)}"
+    return full
 
 
 def base_name(text: str) -> str:
@@ -80,33 +123,43 @@ class Naming:
     term: str | None = None
 
 
-def name_section_files(sections: list[tuple[int, str, str]], base: str,
-                       naming: Naming) -> tuple[dict[int, str], list[str]]:
-    """File name per section for one assignment, and notes on any clash.
+def name_section_files(sections: list[tuple[int, str, str]], base: str, naming: Naming,
+                       lead: str = "") -> tuple[dict[int, str], dict[int, str]]:
+    """File name per section for one assignment, and a note per section whose
+    name had to be longer.
 
     sections: (section id, section name, instructor). Names are compared
-    without case, as on Windows. When two sections reduce to one name (A2-8 and
-    A2-9 are both "A2"), the later one uses its full section name; if even that
-    clashes, its section id is added.
+    without case, as on Windows. Every section in a group that would share a
+    name gets the longer prefix (A1 5 and A1 8 become A1-5 and A1-8, so no one
+    file is named differently from the rest); if even those are shared, the
+    section id is added to each.
     """
-    names: dict[int, str] = {}
-    used: dict[str, str] = {}             # casefolded name -> section that has it
-    notes: list[str] = []
-    for sid, sname, instructor in sorted(sections, key=lambda t: (t[1] or "", t[0])):
-        sname = sname or str(sid)
-        prefix = section_prefix(sname, naming.style, instructor)
-        name = grade_file_name(prefix, base, naming.ay, naming.term)
-        if name.casefold() in used:
-            notes.append(f"note: {sname} and {used[name.casefold()]} share a prefix; "
-                         f"using the full section name for {sname}")
-            full = section_prefix(sname, "full")
-            if naming.style == "instructor" and (instructor or "").strip():
-                full = f"{full}-{slug(instructor, 20)}"
-            name = grade_file_name(full, base, naming.ay, naming.term)
-            if name.casefold() in used:
-                name = grade_file_name(f"{full}-{sid}", base, naming.ay, naming.term)
-        used[name.casefold()] = sname
-        names[sid] = name
+    level = {sid: 0 for sid, _, _ in sections}
+
+    def name_of(sid, sname, instructor):
+        if level[sid] == 0:
+            prefix = section_prefix(sname, naming.style, instructor, lead)
+        else:
+            prefix = _longer_prefix(sname, naming.style, instructor, lead)
+            if level[sid] == 2 or (naming.style == "full" and level[sid] == 1):
+                prefix = f"{prefix}-{sid}"
+        return grade_file_name(prefix, base, naming.ay, naming.term)
+
+    while True:
+        names = {sid: name_of(sid, sname or str(sid), instr) for sid, sname, instr in sections}
+        groups: dict[str, list[int]] = {}
+        for sid, n in names.items():
+            groups.setdefault(n.casefold(), []).append(sid)
+        shared = [g for g in groups.values() if len(g) > 1 and any(level[s] < 2 for s in g)]
+        if not shared:
+            break
+        for g in shared:
+            for sid in g:
+                level[sid] = min(level[sid] + 1, 2)
+    by_id = {sid: sname or str(sid) for sid, sname, _ in sections}
+    notes = {sid: f"note: {by_id[sid]} shares its short name with another chosen section; "
+                  f"using {names[sid]}"
+             for sid, lv in level.items() if lv}
     return names, notes
 
 
@@ -241,13 +294,16 @@ def students_of(roster: Roster, sid: int) -> list[dict]:
 
 
 def planned_names(roster: Roster, instructors: dict, section_ids, base: str,
-                  naming: Naming) -> tuple[dict[int, str], list[str]]:
+                  naming: Naming) -> tuple[dict[int, str], dict[int, str]]:
     """File name per section that has students, for one assignment (what the
     run will write, and what the window previews)."""
+    instructors = {int(k): v for k, v in (instructors or {}).items()}
     sections = [(sid, roster.section_by_id[sid].get("name") or str(sid),
                  (instructors.get(sid) or [""])[0])
                 for sid in section_ids if roster.users_of_section.get(sid)]
-    return name_section_files(sections, base, naming)
+    lead = course_lead([s.get("name") for s in roster.sections
+                        if s["id"] not in roster.catch_all])
+    return name_section_files(sections, base, naming, lead)
 
 
 def _write_section_files(b: _Batch, section_ids, assignment: dict | None,
@@ -269,8 +325,8 @@ def _write_section_files(b: _Batch, section_ids, assignment: dict | None,
         if len(teachers) > 1:
             reporter.info(f"  note: {section_name} has several instructors "
                           f"({', '.join(teachers)}); using {teachers[0]}")
-        for n in [n for n in notes if n.startswith(f"note: {section_name} and ")]:
-            reporter.info(f"  {n}")
+        if sid in notes:
+            reporter.info(f"  {notes[sid]}")
         path = b.out_dir / names[sid]
         if path.exists() and not b.force:
             reporter.info(f"  ! {path} exists; not overwritten (use --force)")
