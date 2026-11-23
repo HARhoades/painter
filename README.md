@@ -12,6 +12,9 @@ painter list assignments --base-url https://school.instructure.com --course 1234
 painter download --base-url https://school.instructure.com --course 12345 --assignment 67890
 ```
 
+`download` fetches 4 files at a time by default (`--jobs 1` for one at a
+time, in order; the window has the same setting under Settings › Downloads).
+
 There's also a window for downloading submissions and posting grades:
 `pip install -e .[gui]`, then `painter-gui` (see "The window" in the manual).
 

@@ -552,6 +552,11 @@ changes to a grade file" (on at first). Two greyed-out boxes, the due date and
 points possible in the preview, are placeholders for later; the preview
 doesn't ask Canvas for anything today.
 
+Settings › **Downloads**, folded under "Advanced", has "Files to download at
+once" (1-8, 4 at first). The next download uses the value set when you press
+Download; Settings can't be opened while a download runs. 1 downloads one
+file at a time, in order. Lower it if Canvas reports rate limiting.
+
 **Choose a course.** Courses where you are a teacher or a TA, current term
 first, with a filter by name, term and role. A TA can do whatever their
 Canvas role allows; when Canvas refuses something, the window says so.
@@ -587,14 +592,19 @@ doesn't list instructors to you, there is no filter.
 
 While you choose, the window counts the files a download would fetch. The
 running screen shows one progress bar for the whole download, filled by the
-percent of files done, and a thinner bar under it for the student being
-downloaded (their files done out of the files they submitted). It also shows
-Canvas's rate-limit pauses, every file
-(✓ downloaded, ↺ already here, ✕ failed) and, folded, the same log the
-command line prints. "Stop after this file" stops cleanly: the manifest and
-log are written and running again picks up where it left off. The finished
-screen lists what failed and why, and opens the folder, Excel log and
-manifest.
+percent of files done, and under it an **Assignments** list with a bar for
+each assignment: "waiting", "listing submissions…", "12 of 30 files",
+"✓ 30 files", or "stopped at 12 of 30", with failures in the warning colour.
+The list scrolls past six assignments. Several files download at once (see
+Settings › Downloads), so assignments overlap: the next one is listed while
+the current one downloads. With one file at a time, a thinner bar also shows
+the student being downloaded. The screen also shows Canvas's rate-limit
+pauses, every file (✓ downloaded, ↺ already here, ✕ failed) and, folded, the
+same log the command line prints. "Stop" stops cleanly: files in progress
+stop part-way and are not kept, the manifest and log are written, and running
+again picks up where it left off (with one file at a time the button reads
+"Stop after this file"). The finished screen lists what failed and why, and
+opens the folder, Excel log and manifest.
 
 When the download finishes, "Details: lateness and submissions" gives one
 line (how many submissions, how many late and the longest, how many
