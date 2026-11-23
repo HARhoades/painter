@@ -157,3 +157,75 @@ def test_client_refuses_plain_http():
     with pytest.raises(ValueError, match="https"):
         Canvas("http://canvas.test", "t")
     assert Canvas("https://canvas.test/", "t").base == "https://canvas.test"
+
+
+# ---- parallel downloads: shared state between threads ---------------------
+class AlwaysOk:
+    headers = {}
+
+    def request(self, method, url, **kw):
+        return make_response(url, payload={})
+
+
+def test_stats_are_exact_when_many_threads_request_at_once():
+    import threading
+    c = Canvas(BASE, "tok")
+    c.session = AlwaysOk()
+    c.sleep = lambda s: None
+
+    def work():
+        for _ in range(200):
+            c._request("GET", f"{BASE}/x")
+    threads = [threading.Thread(target=work) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert c.stats["requests"] == 1600
+
+
+def test_one_thread_throttled_makes_the_others_wait():
+    import threading
+    now = [100.0]
+    waits = []
+    c = Canvas(BASE, "tok")
+    c.clock = lambda: now[0]
+    c.sleep = lambda s: None
+    c.on_wait = lambda reason, seconds, percent: waits.append((threading.get_ident(), seconds))
+    c.session = ScriptedSession(make_response(f"{BASE}/x", 429, headers={"Retry-After": "5"}),
+                                make_response(f"{BASE}/x", payload={}),
+                                make_response(f"{BASE}/x", payload={}),
+                                make_response(f"{BASE}/x", payload={}))
+    c._request("GET", f"{BASE}/x")             # throttled once, waits 5 s itself
+    me = threading.get_ident()
+    assert waits == [(me, 5.0)]
+
+    other = threading.Thread(target=lambda: c._request("GET", f"{BASE}/x"))
+    other.start()
+    other.join()
+    assert len(waits) == 2 and waits[1][0] != me and waits[1][1] == 5.0
+
+    c._request("GET", f"{BASE}/x")             # the throttled thread doesn't wait twice
+    assert len(waits) == 2
+    now[0] = 106.0                            # gate expired: nobody waits
+    t = threading.Thread(target=lambda: c._request("GET", f"{BASE}/x"))
+    c.session.steps.append(make_response(f"{BASE}/x", payload={}))
+    t.start()
+    t.join()
+    assert len(waits) == 2
+
+
+def test_worker_threads_get_their_own_session():
+    import threading
+    c = Canvas(BASE, "tok")
+    seen = {}
+
+    def work():
+        c.attach_thread_session()
+        seen["s"] = c._session()
+    t = threading.Thread(target=work)
+    t.start()
+    t.join()
+    assert seen["s"] is not c.session
+    assert seen["s"].headers["Authorization"] == "Bearer tok"
+    assert c._session() is c.session          # other threads unchanged

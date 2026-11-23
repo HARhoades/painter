@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import random
+import threading
 import time
 
 import requests
@@ -109,14 +110,60 @@ class Canvas:
         self.should_stop = None          # callable() -> bool
         self.stats = {"requests": 0, "throttled": 0, "retries": 0,
                       "paced_seconds": 0.0, "min_remaining": None}
+        # Parallel downloads: stats and the throttle gate are shared between
+        # threads, so every change to them goes through this lock. Held only
+        # for the update itself, never across a request or a sleep.
+        self._lock = threading.Lock()
+        self._local = threading.local()      # per-thread session (download workers)
+        self.clock = time.monotonic          # swapped out in tests
+        # Throttle gate: when one thread is throttled, the others hold off
+        # until resume_at instead of hammering Canvas meanwhile.
+        self._resume_at = 0.0
+        self._gate_owner: int | None = None  # thread that set it waits on its own
+
+    # ---- threads -----------------------------------------------------------
+    def attach_thread_session(self) -> None:
+        """Give the calling thread its own requests.Session (same headers).
+
+        requests.Session is not documented as thread-safe, so each download
+        worker calls this once (ThreadPoolExecutor initializer). Every other
+        thread keeps using self.session, exactly as before.
+        """
+        own = requests.Session()
+        own.headers.update(self.session.headers)
+        self._local.session = own
+
+    def _session(self):
+        return getattr(self._local, "session", None) or self.session
+
+    def _bump(self, key: str, n: float = 1) -> None:
+        with self._lock:
+            self.stats[key] += n
+
+    def _hold_off(self, seconds: float) -> None:
+        """Tell the other threads to wait `seconds` before their next request."""
+        with self._lock:
+            self._resume_at = max(self._resume_at, self.clock() + seconds)
+            self._gate_owner = threading.get_ident()
+
+    def _await_gate(self) -> None:
+        """Wait out another thread's throttling pause, if one is running.
+        The thread that was throttled already waits in _request itself."""
+        with self._lock:
+            if self._gate_owner == threading.get_ident():
+                return
+            delay = self._resume_at - self.clock()
+        if delay > 0:
+            self.wait(delay, "Canvas is rate-limiting requests; waiting")
 
     def _note_rate(self, resp: requests.Response) -> float | None:
         try:
             remaining = float(resp.headers["X-Rate-Limit-Remaining"])
         except (KeyError, ValueError):
             return None
-        low = self.stats["min_remaining"]
-        self.stats["min_remaining"] = remaining if low is None else min(low, remaining)
+        with self._lock:
+            low = self.stats["min_remaining"]
+            self.stats["min_remaining"] = remaining if low is None else min(low, remaining)
         return remaining
 
     def wait(self, seconds: float, reason: str, percent: float | None = None,
@@ -146,7 +193,7 @@ class Canvas:
             return
         wait = min(PACE_CAP, (RATE_LOW_WATER - remaining) / RATE_REFILL_PER_SEC)
         if wait > 0:
-            self.stats["paced_seconds"] += wait
+            self._bump("paced_seconds", wait)
             self.wait(wait, "pacing requests to stay under Canvas's rate limit",
                       cancellable=cancellable)
 
@@ -171,32 +218,34 @@ class Canvas:
         last = None
         for attempt in range(MAX_ATTEMPTS):
             final = attempt == MAX_ATTEMPTS - 1
+            self._await_gate()
             try:
-                self.stats["requests"] += 1
-                resp = self.session.request(method, url, timeout=timeout,
+                self._bump("requests")
+                resp = self._session().request(method, url, timeout=timeout,
                                             headers=headers or None, **kw)
             except (requests.ConnectionError, requests.Timeout):
                 if not idempotent or final:
                     raise
-                self.stats["retries"] += 1
+                self._bump("retries")
                 self.wait(backoff_delay(attempt), "retrying after a connection error")
                 continue
             last = resp
             remaining = self._note_rate(resp)
             if is_throttled(resp):
-                self.stats["throttled"] += 1
+                self._bump("throttled")
                 if final:
                     break
-                self.stats["retries"] += 1
+                self._bump("retries")
                 resp.close()
                 # A throttled request was not processed, so stopping here is safe
-                self.wait(backoff_delay(attempt, retry_after_seconds(resp)),
-                          "Canvas is rate-limiting requests; retrying")
+                delay = backoff_delay(attempt, retry_after_seconds(resp))
+                self._hold_off(delay)        # other threads wait too
+                self.wait(delay, "Canvas is rate-limiting requests; retrying")
                 continue
             if retry_server_errors and resp.status_code in (500, 502, 503, 504):
                 if final:
                     break
-                self.stats["retries"] += 1
+                self._bump("retries")
                 resp.close()
                 self.wait(backoff_delay(attempt), "Canvas server error; retrying")
                 continue
@@ -259,7 +308,7 @@ class Canvas:
                     requests.exceptions.ChunkedEncodingError):
                 if attempt == DOWNLOAD_ATTEMPTS - 1:
                     raise
-                self.stats["retries"] += 1
+                self._bump("retries")
                 self.wait(backoff_delay(attempt), "download interrupted; retrying")
         note = None
         if expected_size is not None and written != expected_size:
