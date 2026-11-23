@@ -125,8 +125,9 @@ def test_stop_shows_what_was_done(window, setup, qtbot, monkeypatch):
     with qtbot.waitSignal(window.runner.cancelled, timeout=5000):
         v.start()
         run.stop()
-        assert run.stop_btn.text() == "Stopping after this file…"
+        stopping = run.stop_btn.text()
         gate.set()
+    assert stopping == "Stopping…"             # 4 at a time: files in progress stop too
     done = window.views["download_done"]
     assert done.h1.text() == "Stopped: 1 file downloaded before you stopped"
 

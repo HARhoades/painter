@@ -259,6 +259,7 @@ class _DownloadRun:
     stage_done: int = 0                    # files done / to do in this assignment
     stage_total: int = 0
     new_quizzes_without_files: list[dict] = field(default_factory=list)
+    tallies: dict[int, "_Tally"] = field(default_factory=dict)   # per-assignment progress
 
 
 def submissions_to_fetch(canvas: Canvas, course_id: int, assignment_id: int,
@@ -296,11 +297,45 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
     if req.workers > 1:
         _ParallelDownload(run, assignments).execute()
     else:
-        for n, assign in enumerate(assignments, start=1):
-            _download_assignment(run, assign, n, len(assignments))
-            if run.stopped:
-                break
+        _serial_download(run, assignments)
     return _finish_download(run)
+
+
+def _serial_download(run: _DownloadRun, assignments: list[dict]) -> None:
+    """One file at a time, in order: the same text the CLI has always printed.
+    Also sends AssignmentProgress, so the window shows one bar per assignment
+    whatever the worker count."""
+    run.tallies = {a["id"]: _Tally(a) for a in assignments}
+    for aid in run.tallies:
+        _tell(run, aid)
+    for n, assign in enumerate(assignments, start=1):
+        _download_assignment(run, assign, n, len(assignments))
+        if run.stopped:
+            break
+    if run.stopped:
+        for aid, tally in run.tallies.items():
+            if tally.state != "done":
+                tally.state = "stopped"
+                _tell(run, aid)
+
+
+@dataclass
+class _Tally:
+    """Where one assignment stands, for AssignmentProgress."""
+    assign: dict
+    state: str = "waiting"
+    done: int = 0
+    total: int | None = None
+    failed: int = 0
+
+
+def _tell(run: _DownloadRun, aid: int) -> None:
+    tally = run.tallies.get(aid)
+    if tally is None:
+        return
+    a = tally.assign
+    run.reporter.event(AssignmentProgress(a["id"], a.get("name", ""), tally.state,
+                                          tally.done, tally.total, tally.failed))
 
 
 def _start_download(canvas: Canvas, req: DownloadRequest,
@@ -362,11 +397,17 @@ def _note_new_quiz(run: _DownloadRun, assign: dict, submitted: int) -> None:
 
 def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int) -> None:
     req, reporter = run.req, run.reporter
+    tally = run.tallies.get(assign["id"]) or _Tally(assign)
+    tally.state = "listing"
+    _tell(run, assign["id"])
     opened = _open_assignment(run, assign)
     submitted, todo = submissions_to_fetch(run.canvas, req.course_id, assign["id"],
                                            run.student_ids, req.history)
     with_files = len(todo)
     run.stage_done, run.stage_total = 0, sum(len(a) for _, a in todo)
+    tally.total = run.stage_total
+    tally.state = "downloading" if run.stage_total else "done"
+    _tell(run, assign["id"])
     reporter.event(Stage(f"Downloading {assign['name']}", total=run.stage_total,
                          step=step, steps=steps))
     reporter.progress(0, run.stage_total, assign["name"])
@@ -377,6 +418,9 @@ def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int)
         _download_submission(run, assign, opened.adir, opened.due, sub, attachments)
         if run.stopped:
             return
+    if tally.state != "done":
+        tally.state = "done"
+        _tell(run, assign["id"])
 
     if opened.is_new_quiz and not with_files:
         _note_new_quiz(run, assign, submitted)
@@ -461,6 +505,11 @@ def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDa
         run.reporter.progress(run.stage_done, run.stage_total, fname)
         run.reporter.event(ItemDone("file", fname, status_text,
                                     plan.common["student"], target))
+        tally = run.tallies.get(assign["id"])
+        if tally is not None:
+            tally.done += 1
+            tally.failed += status_text.startswith("failed")
+            _tell(run, assign["id"])
 
 
 @dataclass
@@ -555,22 +604,13 @@ class _Block:
     lines: dict[int, list[Note]] = field(default_factory=dict)
 
 
-@dataclass
-class _Tally:
-    assign: dict
-    state: str = "waiting"
-    done: int = 0
-    total: int | None = None
-    failed: int = 0
-
-
 class _ParallelDownload:
     def __init__(self, run: _DownloadRun, assignments: list[dict]):
         self.run = run
         self.assignments = assignments
         self.stop_now = threading.Event()  # a second Ctrl+C: workers stop at once
         run.reporter = self.rep = LockedReporter(run.reporter, self.stop_now)
-        self.tallies = {a["id"]: _Tally(a) for a in assignments}
+        run.tallies = self.tallies = {a["id"]: _Tally(a) for a in assignments}
         self.blocks: dict[tuple[int, int], _Block] = {}
         self.pending: dict[Future, _FileJob] = {}
         self.same_path: dict[Path, list[_FileJob]] = {}   # jobs queued behind one
@@ -585,9 +625,10 @@ class _ParallelDownload:
     # ---- the run ------------------------------------------------------------
     def execute(self) -> None:
         rep = self.rep
-        rep.info(f"Downloading {self.run.req.workers} files at a time.")
-        rep.event(Stage(f"Downloading {len(self.assignments)} assignment(s)",
-                        step=1, steps=1))
+        workers, n = self.run.req.workers, len(self.assignments)
+        rep.info(f"Downloading {workers} files at a time.")
+        rep.event(Stage(f"Downloading {n} assignment{'s' if n != 1 else ''} "
+                        f"· {workers} at a time"))
         for tally in self.tallies.values():
             self._tell(tally)
         try:
@@ -741,9 +782,7 @@ class _ParallelDownload:
         self.run.rows.extend(row for _, row in sorted(self.rows, key=lambda r: r[0]))
 
     def _tell(self, tally: _Tally) -> None:
-        a = tally.assign
-        self.rep.event(AssignmentProgress(a["id"], a.get("name", ""), tally.state,
-                                          tally.done, tally.total, tally.failed))
+        _tell(self.run, tally.assign["id"])
 
 
 def _finish_download(run: _DownloadRun) -> DownloadResult:

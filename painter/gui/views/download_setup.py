@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from painter.config import default_download_root, exposed_in_repo
+from painter.config import clamp_workers, default_download_root, exposed_in_repo
 from painter.domain.naming import slug
 from painter.domain.freshness import Freshness, classify, needs_check, oldest
 from painter.domain.roster import Roster, section_instructors
@@ -537,7 +537,8 @@ class DownloadSetupView(View):
             by_section=self.by_section.isChecked(), flat=self.flat.isChecked(),
             extract=not self.keep_archives.isChecked(), history=self.history.isChecked(),
             tz=None if tz in ("", "UTC") else tz, excel_log=self.excel.isChecked(),
-            run_started=datetime.now())
+            run_started=datetime.now(),
+            workers=clamp_workers(self.session.settings.download_workers))
 
     def start(self):
         why = self.missing()

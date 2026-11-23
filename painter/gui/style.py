@@ -152,6 +152,11 @@ QProgressBar::chunk { background: ${primary}; border-radius: 8px; margin: 1px; }
 QProgressBar#student { background: ${well}; border: 1px solid ${secondary}; border-radius: 5px;
   min-height: 8px; max-height: 8px; }
 QProgressBar#student::chunk { background: ${secondary}; border-radius: 4px; margin: 0; }
+QProgressBar#assignment { background: ${well}; border: 1px solid ${ink}; border-radius: 5px;
+  min-height: 10px; max-height: 10px; }
+QProgressBar#assignment::chunk { background: ${primary}; border-radius: 4px; margin: 0; }
+QLabel#caption { color: ${muted}; font-size: 13px; min-width: 150px; }
+QLabel#caption[tone="bad"] { color: ${highlight}; font-weight: 600; }
 QTableWidget, QTreeWidget, QListWidget { background: #FFFFFF; border: 1px solid ${line}; border-radius: 10px;
   gridline-color: ${line}; alternate-background-color: ${surface}; }
 QTableWidget::item:selected, QListWidget::item:selected { background: ${primary_tint}; color: ${ink}; }

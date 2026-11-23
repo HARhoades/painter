@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QHeaderView, QPlainTextEdit, QProgressBar, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QFrame, QGridLayout, QHeaderView, QPlainTextEdit,
+    QProgressBar, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from painter.events import ItemDone, Stage, StudentStart, Waiting
+from painter.events import AssignmentProgress, ItemDone, Stage, StudentStart, Waiting
 from painter.gui.views import View
 from painter.gui.widgets import (
-    Banner, Card, FoldButton, button, heading, hbox, label, pill_cell,
+    Banner, Card, FoldButton, button, heading, hbox, label, pill_cell, restyle,
 )
 from painter.services.submissions import download_submissions
 
@@ -31,6 +31,92 @@ def overall_fraction(done: int, prior: int, stage_total: int, expected: int | No
         inner = stage_done / stage_total if stage_total else 0.0   # nothing known yet: 0%
         return min(((step - 1) + inner) / steps, 1.0), None
     return 0.0, None
+
+
+def assignment_caption(e: AssignmentProgress) -> str:
+    """The words beside one assignment's bar."""
+    failed = f" · {e.failed} failed" if e.failed else ""
+    if e.state == "waiting":
+        return "waiting"
+    if e.state == "listing":
+        return "listing submissions…"
+    if e.state == "stopped":
+        if e.total is None:
+            return "stopped before it started"
+        return f"stopped at {e.done} of {e.total}{failed}"
+    if e.state == "done":
+        if not e.total:
+            return "no files"
+        if e.failed:
+            return f"{e.done - e.failed} of {e.total}{failed}"
+        return f"✓  {e.total} file{'s' if e.total != 1 else ''}"
+    return f"{e.done} of {e.total} files{failed}"
+
+
+class AssignmentRows(Card):
+    """One row per assignment: its name, its own bar, and where it stands.
+    Scrolls past VISIBLE rows so a long run doesn't push the files away."""
+    VISIBLE = 6
+    ROW_HEIGHT = 34
+
+    def __init__(self):
+        super().__init__(padding=20)
+        self.body.addWidget(label("Assignments", "h2"))
+        self.area = QScrollArea()
+        self.area.setWidgetResizable(True)
+        self.area.setFrameShape(QFrame.NoFrame)
+        self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner = QWidget()
+        self.grid = QGridLayout(inner)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setHorizontalSpacing(14)
+        self.grid.setVerticalSpacing(6)
+        self.grid.setColumnStretch(1, 1)
+        self.area.setWidget(inner)
+        self.body.addWidget(self.area)
+        self.rows: dict[int, tuple] = {}         # id -> (name, bar, caption)
+
+    def clear(self) -> None:
+        for name, bar, caption in self.rows.values():
+            for w in (name, bar, caption):
+                self.grid.removeWidget(w)
+                w.deleteLater()
+        self.rows.clear()
+        self.setVisible(False)
+
+    def apply(self, e: AssignmentProgress) -> None:
+        row = self.rows.get(e.assignment_id)
+        if row is None:
+            name = label(e.name)
+            name.setMinimumWidth(160)
+            name.setMaximumWidth(320)
+            bar = QProgressBar()
+            bar.setObjectName("assignment")
+            bar.setTextVisible(False)
+            bar.setAccessibleName(f"Progress for {e.name}")
+            caption = label("", "caption")
+            n = len(self.rows)
+            self.grid.addWidget(name, n, 0)
+            self.grid.addWidget(bar, n, 1)
+            self.grid.addWidget(caption, n, 2)
+            row = self.rows[e.assignment_id] = (name, bar, caption)
+            shown = min(len(self.rows), self.VISIBLE)
+            self.area.setFixedHeight(shown * self.ROW_HEIGHT)
+            self.setVisible(True)
+        _, bar, caption = row
+        if e.state == "listing":
+            bar.setRange(0, 0)                   # busy
+        else:
+            bar.setRange(0, max(e.total or 0, 1))
+            bar.setValue(1 if e.state == "done" and not e.total else min(e.done, bar.maximum()))
+        caption.setText(assignment_caption(e))
+        restyle(caption, tone="bad" if e.failed else "")
+
+    def caption(self, aid: int) -> str:
+        return self.rows[aid][2].text()
+
+    def bar(self, aid: int) -> QProgressBar:
+        return self.rows[aid][1]
 
 
 def pill_for(status: str) -> tuple[str, str]:
@@ -87,6 +173,9 @@ class DownloadRunView(View):
         self.page.addWidget(top)
         self.wait = Banner()
         self.page.addWidget(self.wait)
+        self.assignments = AssignmentRows()
+        self.assignments.setVisible(False)
+        self.page.addWidget(self.assignments)
 
         files = Card()
         self.files_head = label("Files", "h2")
@@ -132,6 +221,8 @@ class DownloadRunView(View):
         if request is None:
             return
         self.request, self.expected = request, expected
+        self.parallel = getattr(request, "workers", 1) > 1
+        self.assignments.clear()
         self.done_total = self.prior = self.stage_done = self.stage_total = 0
         self.step, self.steps, self.stage_name = 1, 1, ""
         self.student_done = 0
@@ -147,7 +238,8 @@ class DownloadRunView(View):
         self._show_student(False)
         self._show_totals()
         self.stop_btn.setEnabled(True)
-        self.stop_btn.setText("■  Stop after this file")
+        # Several files at once: Stop ends the files in progress part-way.
+        self.stop_btn.setText("■  Stop" if self.parallel else "■  Stop after this file")
         self._update_counts()
         self._log_label()
         self.win.runner.start(download_submissions, self.session.canvas, request)
@@ -155,7 +247,7 @@ class DownloadRunView(View):
     def stop(self):
         if self.win.runner.cancel():
             self.stop_btn.setEnabled(False)
-            self.stop_btn.setText("Stopping after this file…")
+            self.stop_btn.setText("Stopping…" if self.parallel else "Stopping after this file…")
 
     # ---- runner output ----
     def _line(self, kind, text):
@@ -193,6 +285,8 @@ class DownloadRunView(View):
             secs = f"; retrying in {e.seconds:.0f} s" if e.seconds else ""
             self.wait.set("attention", "", f"{e.reason}{secs}. Nothing is wrong; Painter "
                                            "waits and carries on.")
+        elif isinstance(e, AssignmentProgress):
+            self.assignments.apply(e)
         elif isinstance(e, ItemDone) and e.kind == "file":
             self._add_row(e)
 

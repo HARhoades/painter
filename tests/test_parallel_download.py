@@ -215,8 +215,24 @@ def test_second_ctrl_c_stops_the_workers_and_leaves_no_part_files(course, tmp_pa
     assert not list(tmp_path.rglob("*.part"))
 
 
-def test_one_worker_is_the_unchanged_serial_path(course, tmp_path):
+def test_one_worker_is_the_serial_path_with_the_same_assignment_events(course, tmp_path):
     rep = RecordingReporter()
-    run(tmp_path, 1, reporter=rep)
-    assert rep.of(AssignmentProgress) == []
+    res = run(tmp_path, 1, reporter=rep)
     assert "at a time" not in rep.text()
+    finals = {}
+    for e in rep.of(AssignmentProgress):
+        finals.setdefault(e.assignment_id, []).append(e.state)
+    assert {aid: (s[0], s[-1]) for aid, s in finals.items()} == {
+        7001: ("waiting", "done"), 7101: ("waiting", "done"), 7102: ("waiting", "done")}
+    last = [e for e in rep.of(AssignmentProgress) if e.state == "done"]
+    assert sum(e.done for e in last) == len(res.rows)
+
+
+def test_serial_stop_marks_the_rest_stopped(course, tmp_path):
+    rep = RecordingReporter(cancel_after=3)
+    with pytest.raises(Cancelled):
+        run(tmp_path, 1, reporter=rep)
+    finals = {}
+    for e in rep.of(AssignmentProgress):
+        finals[e.assignment_id] = e.state
+    assert "stopped" in finals.values() and set(finals.values()) <= {"done", "stopped"}
