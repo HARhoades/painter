@@ -38,7 +38,7 @@ def test_the_default_is_four_at_a_time_with_the_same_files_and_blocks(fake_canva
     code4, out4, _ = run_cli(*COMMON, "download", "--out", str(tmp_path / "b"), "--no-xlsx")
     assert code1 == code4 == exit_codes.OK
     assert f"Downloading {DEFAULT_WORKERS} files at a time." in out4
-    assert "at a time" not in out1
+    assert "files at a time." not in out1                # no "Downloading N files..." line
     assert blocks(out4) == blocks(out1)
     _, a = read_records(tmp_path / "a" / "manifest.csv")
     _, b = read_records(tmp_path / "b" / "manifest.csv")

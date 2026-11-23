@@ -27,7 +27,8 @@
     "",
     "[7002] Reflection  (due no due date)",
     "",
-    "2 file(s). Manifest: <TMP>/o/manifest.csv"
+    "2 file(s). Manifest: <TMP>/o/manifest.csv",
+    "Finished in <TIME>: 2 new file(s) (24 B); one file at a time."
    ],
    "stderr": [],
    "requests": [

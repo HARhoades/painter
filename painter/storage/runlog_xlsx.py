@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from painter.domain.measures import fmt_bytes, fmt_duration, fmt_speed
+
 
 # --------------------------------------------------------------------------
 # Excel run log
@@ -80,6 +82,12 @@ class RunInfo:
     section_specs: tuple = ()
     student_specs: tuple = ()
     tz_name: str | None = None
+    # Timing, for comparing runs (e.g. at different worker counts). Rows for
+    # these appear only when elapsed is given.
+    elapsed: float | None = None           # seconds
+    downloaded_bytes: int = 0
+    workers: int = 1
+    rate_limiting: str = ""                # "" = none in this run
 
 
 def write_run_log(rows: list[dict], path: Path, run: RunInfo) -> None:
@@ -248,6 +256,24 @@ SUMMARY_NOTES = [
 ]
 
 
+def _timing_rows(run: RunInfo) -> list[tuple]:
+    """Run time, data and speed: text to read, plus seconds and MB as numbers
+    so runs can be compared with formulas."""
+    if run.elapsed is None:
+        return []
+    mb = run.downloaded_bytes / (1 << 20)
+    speed = fmt_speed(run.downloaded_bytes, run.elapsed)
+    return [
+        ("Run time", fmt_duration(run.elapsed)),
+        ("Run time (seconds)", round(run.elapsed, 1)),
+        ("New data", fmt_bytes(run.downloaded_bytes)),
+        ("New data (MB)", round(mb, 2)),
+        ("Average speed", speed or "too short to measure"),
+        ("Files at a time", run.workers),
+        ("Rate limiting", run.rate_limiting or "none"),
+    ]
+
+
 def _summary_sheet(ws, n_rows: int, run: RunInfo, st: _Styles) -> None:
     """Sheet 4: what this run did, and totals as formulas over Files."""
     last_row = max(n_rows + 1, 2)   # keep ranges valid on an empty run
@@ -276,7 +302,7 @@ def _summary_sheet(ws, n_rows: int, run: RunInfo, st: _Styles) -> None:
         ("Students", f"=SUM(Files!${COL_NEW_STU}$2:${COL_NEW_STU}${last_row})"),
         ("Late files",
          f'=COUNTIF(Files!${COL_LATE}$2:${COL_LATE}${last_row},"Yes")'),
-    ]:
+    ] + _timing_rows(run):
         ws.append([label, value])
     ws.append([])
     for note in SUMMARY_NOTES:

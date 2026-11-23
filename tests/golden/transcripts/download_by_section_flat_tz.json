@@ -30,7 +30,8 @@
     "  A2-8/Roe-Rick_502  submitted 2026-09-03 23:59  [LATE +1d]",
     "    downloaded Roe-Rick_502__analysis.zip",
     "",
-    "1 file(s). Manifest: <TMP>/o/manifest.csv"
+    "1 file(s). Manifest: <TMP>/o/manifest.csv",
+    "Finished in <TIME>: 1 new file(s) (228 B); one file at a time."
    ],
    "stderr": [
     "Sections: A2-8"

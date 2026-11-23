@@ -168,3 +168,40 @@ def test_rate_text_pacing_only_and_long_waits():
     assert "paused 1 min 35 s before the limit ran out" in body
     assert "1 file at a time" in body and "refused" not in body
     assert fmt_seconds(0.3) == "under a second" and fmt_seconds(5) == "5 s"
+
+
+# ---- run time ---------------------------------------------------------------------
+def test_clock_ticks_while_running_and_the_done_screen_shows_run_time(window, setup, qtbot,
+                                                                      monkeypatch):
+    gate = threading.Event()
+    result = DownloadResult([{"status": "downloaded", "user_id": 501, "assignment_id": 7001}],
+                            0, [], elapsed=222.4, downloaded_bytes=50 << 20, workers=4)
+
+    def fake_download(canvas, req, reporter):
+        gate.wait(5)
+        return result
+    monkeypatch.setattr("painter.gui.views.download_run.download_submissions", fake_download)
+    tick(setup, 7001)
+    setup.picker.section_buttons[11].setChecked(True)
+    run = window.views["download_run"]
+    with qtbot.waitSignal(window.runner.finished, timeout=8000):
+        setup.start()
+        assert run.clock.text() == "0:00 elapsed" and run.ticker.isActive()
+        qtbot.waitUntil(lambda: run.clock.text() == "0:01 elapsed", timeout=3000)
+        gate.set()
+    assert not run.ticker.isActive()
+    assert run.clock.text() == "3:42 in all"                 # the run's own measure
+    done = window.views["download_done"]
+    tile = done.time_tile
+    texts = [w.text() for w in tile.findChildren(type(done.h1))]
+    assert "3 min 42 s" in texts
+    assert "run time · 50.0 MB new at 230.2 KB/s · 4 files at a time" in texts
+
+
+def test_timing_tile_wording():
+    from painter.gui.views.download_done import timing_tile
+    r = DownloadResult([], 0, [], elapsed=0.4, downloaded_bytes=0, workers=1)
+    assert timing_tile(r) == ("under a second", "run time · 0 B new · one file at a time")
+    r = DownloadResult([], 0, [], elapsed=65, downloaded_bytes=3 << 20, workers=6)
+    assert timing_tile(r, stopped=True) == (
+        "1 min 05 s", "run time before you stopped · 3.0 MB new at 47.3 KB/s · 6 files at a time")

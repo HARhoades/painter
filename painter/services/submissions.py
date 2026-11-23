@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import threading
+import time
 
 from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder, quiz_kind
 from painter.domain.duedates import DueDates, fmt_lateness, fmt_ts, parse_tz
+from painter.domain.measures import fmt_bytes, fmt_duration, fmt_speed
 from painter.domain.naming import attachment_filenames, flat_filename, slug, student_dir_name
 from painter.domain.roster import Roster
 from painter.domain.selection import Selection
@@ -241,6 +243,9 @@ class DownloadResult:
     manifest: Path | None = None
     log_path: Path | None = None
     rate: RateLimit | None = None          # Canvas rate limiting in this run, if any
+    elapsed: float = 0.0                   # seconds, start to finish (or to the stop)
+    downloaded_bytes: int = 0              # bytes of files newly downloaded
+    workers: int = 1                       # files fetched at once
 
 
 @dataclass
@@ -262,6 +267,8 @@ class _DownloadRun:
     new_quizzes_without_files: list[dict] = field(default_factory=list)
     tallies: dict[int, "_Tally"] = field(default_factory=dict)   # per-assignment progress
     rate: "_RateWatch | None" = None
+    started: float = field(default_factory=time.monotonic)
+    downloaded_bytes: int = 0
 
 
 def submissions_to_fetch(canvas: Canvas, course_id: int, assignment_id: int,
@@ -295,7 +302,9 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
     result.failures; the run carries on. Cancellation is checked before
     each file and leaves the tree as a rerun expects (no partial files).
     """
+    started = time.monotonic()
     run, assignments = _start_download(canvas, req, reporter)
+    run.started = started                  # the roster and assignments count too
     if req.workers > 1:
         _ParallelDownload(run, assignments).execute()
     else:
@@ -386,6 +395,41 @@ class _RateWatch:
         if use.limited and use != self.last:
             self.last = use
             reporter.event(use)
+
+
+def _timing_line(result: "DownloadResult", stopped: bool) -> str:
+    """'Finished in 3 min 42 s: 412 new file(s) (1.20 GB, 5.5 MB/s),
+    3 already here, 1 failed; 4 files at a time.' Zero counts are left out."""
+    rows = result.rows
+    failed = sum(1 for r in rows if str(r.get("status", "")).startswith("failed"))
+    cached = sum(1 for r in rows if str(r.get("status", "")).startswith("cached"))
+    fresh = len(rows) - failed - cached
+    size = fmt_bytes(result.downloaded_bytes)
+    speed = fmt_speed(result.downloaded_bytes, result.elapsed)
+    parts = [f"{fresh} new file(s) ({size}{', ' + speed if speed else ''})"]
+    if cached:
+        parts.append(f"{cached} already here")
+    if failed:
+        parts.append(f"{failed} failed")
+    return (f"{'Stopped' if stopped else 'Finished'} in {fmt_duration(result.elapsed)}: "
+            f"{', '.join(parts)}; "
+            + ("one file at a time." if result.workers == 1
+               else f"{result.workers} files at a time."))
+
+
+def _rate_summary(use: RateLimit | None) -> str:
+    """The rate-limit totals for the Excel log; "" when there were none."""
+    if use is None:
+        return ""
+    parts = []
+    if use.throttled:
+        parts.append(f"{use.throttled} request(s) refused, waited "
+                     f"{fmt_duration(use.throttle_seconds)}")
+    if use.paced_seconds:
+        parts.append(f"paused {fmt_duration(use.paced_seconds)} to stay under the limit")
+    if use.lowest_remaining is not None:
+        parts.append(f"lowest remaining {use.lowest_remaining:.0f}")
+    return "; ".join(parts)
 
 
 def _rate_line(use: RateLimit) -> str:
@@ -562,6 +606,7 @@ class _FileOutcome:
     extracted_to: str
     failed: bool
     lines: list[Note] = field(default_factory=list)
+    bytes: int = 0                         # size on disk, if newly downloaded
 
 
 def _fetch_one(canvas: Canvas, att: dict, sdir: Path, fname: str,
@@ -583,6 +628,7 @@ def _fetch_one(canvas: Canvas, att: dict, sdir: Path, fname: str,
         return _FileOutcome(f"failed: {exc}", target, "", True, lines)
     status_text = "downloaded" if fresh else "cached"
     lines.append(("info", f"    {status_text} {fname}"))
+    size = target.stat().st_size if fresh else 0
     extracted_to = ""
     if unpack and target.suffix.lower() in ARCHIVE_SUFFIXES:
         unpack_dir = sdir / target.stem
@@ -596,7 +642,7 @@ def _fetch_one(canvas: Canvas, att: dict, sdir: Path, fname: str,
                 lines.append(("info", f"      extracted -> {unpack_dir.name}/"))
             else:
                 status_text += "; extract failed"
-    return _FileOutcome(status_text, target, extracted_to, False, lines)
+    return _FileOutcome(status_text, target, extracted_to, False, lines, size)
 
 
 def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,
@@ -607,6 +653,7 @@ def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,
     emit(outcome.lines, run.reporter)
     if outcome.failed:
         run.failures += 1
+    run.downloaded_bytes += outcome.bytes
     return outcome.status, outcome.target, outcome.extracted_to
 
 
@@ -773,6 +820,7 @@ class _ParallelDownload:
             return
         self._release(job)
         run, tally = self.run, self.tallies[job.aid]
+        run.downloaded_bytes += outcome.bytes
         if outcome.failed:
             run.failures += 1
             tally.failed += 1
@@ -833,7 +881,9 @@ def _finish_download(run: _DownloadRun) -> DownloadResult:
     Cancelled (with the result) if the run was stopped."""
     req, reporter, rows = run.req, run.reporter, run.rows
     out_root = Path(req.out_root)
-    result = DownloadResult(rows, run.failures, run.new_quizzes_without_files)
+    result = DownloadResult(rows, run.failures, run.new_quizzes_without_files,
+                            elapsed=time.monotonic() - run.started,
+                            downloaded_bytes=run.downloaded_bytes, workers=req.workers)
     if run.rate:
         use = run.rate.now()
         if use.limited:
@@ -860,6 +910,7 @@ def _finish_download(run: _DownloadRun) -> DownloadResult:
         reporter.info("\nNo submission files found."
                       + (" (New Quizzes skipped for the reason above.)"
                          if run.new_quizzes_without_files else ""))
+    reporter.info(_timing_line(result, run.stopped))
     if result.rate:
         reporter.warning(_rate_line(result.rate))
 
@@ -872,7 +923,9 @@ def _finish_download(run: _DownloadRun) -> DownloadResult:
             write_run_log(rows, log_path, RunInfo(
                 req.run_started, req.course_id, run.canvas.base, out_root,
                 tuple(req.assignment_ids), req.selection.sections,
-                req.selection.students, req.tz))
+                req.selection.students, req.tz, elapsed=result.elapsed,
+                downloaded_bytes=result.downloaded_bytes, workers=req.workers,
+                rate_limiting=_rate_summary(result.rate)))
             result.log_path = log_path
             reporter.info(f"Excel log: {log_path}")
         except ImportError:

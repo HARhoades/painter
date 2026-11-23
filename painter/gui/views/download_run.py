@@ -1,12 +1,15 @@
 """Screen 4: a download running: progress, waits, the files, the log, Stop."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import time
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFrame, QGridLayout, QHeaderView, QPlainTextEdit,
     QProgressBar, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from painter.domain.measures import fmt_clock, fmt_duration
 from painter.events import (
     AssignmentProgress, ItemDone, RateLimit, Stage, StudentStart, Waiting,
 )
@@ -35,11 +38,7 @@ def overall_fraction(done: int, prior: int, stage_total: int, expected: int | No
     return 0.0, None
 
 
-def fmt_seconds(s: float) -> str:
-    if s < 1:
-        return "under a second"
-    s = round(s)
-    return f"{s} s" if s < 60 else f"{s // 60} min {s % 60:02d} s"
+fmt_seconds = fmt_duration       # the banner's name for it
 
 
 def rate_text(use: RateLimit, finished: bool = False) -> tuple[str, str]:
@@ -187,6 +186,14 @@ class DownloadRunView(View):
         cv.setSpacing(0)
         cv.addWidget(self.big)
         cv.addWidget(self.of)
+        # Wall-clock time since Download was pressed, ticking once a second.
+        self.clock = label("0:00 elapsed", "muted")
+        self.clock.setAccessibleName("Time elapsed")
+        cv.addWidget(self.clock)
+        self.ticker = QTimer(self)
+        self.ticker.setInterval(1000)
+        self.ticker.timeout.connect(self._tick)
+        self.started = time.monotonic()
         self.overall = QProgressBar()
         self.overall.setObjectName("overall")
         self.overall.setRange(0, PERMILLE)
@@ -291,7 +298,13 @@ class DownloadRunView(View):
         self.stop_btn.setText("■  Stop" if self.parallel else "■  Stop after this file")
         self._update_counts()
         self._log_label()
+        self.started = time.monotonic()
+        self._tick()
+        self.ticker.start()
         self.win.runner.start(download_submissions, self.session.canvas, request)
+
+    def _tick(self):
+        self.clock.setText(f"{fmt_clock(time.monotonic() - self.started)} elapsed")
 
     def stop(self):
         if self.win.runner.cancel():
@@ -401,11 +414,19 @@ class DownloadRunView(View):
 
     # ---- end ----
     def _ended(self, result, stopped):
+        self._stop_clock(result)
         if self._mine():
             self.win.go("download_done", result=result, stopped=stopped,
                         request=self.request, log=self.log.toPlainText())
 
+    def _stop_clock(self, result=None):
+        """Freeze the clock; with a result, show the run's own measured time."""
+        self.ticker.stop()
+        elapsed = getattr(result, "elapsed", None) or (time.monotonic() - self.started)
+        self.clock.setText(f"{fmt_clock(elapsed)} in all")
+
     def _failed(self, exc):
+        self._stop_clock()
         if self._mine():
             self.win.go("download_done", error=exc, request=self.request,
                         log=self.log.toPlainText())

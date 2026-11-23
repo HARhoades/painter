@@ -25,7 +25,8 @@
     "",
     "[7002] Reflection  (due no due date)",
     "",
-    "2 file(s). Manifest: <TMP>/o/manifest.csv"
+    "2 file(s). Manifest: <TMP>/o/manifest.csv",
+    "Finished in <TIME>: 1 new file(s) (228 B), 1 failed; one file at a time."
    ],
    "stderr": [
     "1 file(s) could not be downloaded; they are listed in the manifest with status 'failed'."

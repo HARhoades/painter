@@ -25,7 +25,8 @@
     "  Roe-Rick_502  submitted 2026-09-04 03:59  [LATE +1d]",
     "    downloaded analysis.zip",
     "",
-    "2 file(s). Manifest: <TMP>/o/manifest.csv"
+    "2 file(s). Manifest: <TMP>/o/manifest.csv",
+    "Finished in <TIME>: 2 new file(s) (247 B); one file at a time."
    ],
    "stderr": [
     "  renamed 03_DATE-Scenario/ -> DATE-Scenario_7001/ (folders are now named by assignment ID)"

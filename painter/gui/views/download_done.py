@@ -8,6 +8,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QGridLayout, QWidget
 
+from painter.domain.measures import fmt_bytes, fmt_duration, fmt_speed
 from painter.gui.run_details import RunDetails
 from painter.gui.views import View
 from painter.gui.views.download_run import rate_text
@@ -31,6 +32,19 @@ def summarise(rows: list[dict]) -> dict:
         out["students"].add(r.get("user_id"))
         out["assignments"].add(r.get("assignment_id"))
     return out
+
+
+def timing_tile(result, stopped: bool = False) -> tuple[str, str]:
+    """(big text, caption) for the run-time tile: how long, how much new data,
+    how fast, and how many files at a time."""
+    elapsed = getattr(result, "elapsed", 0.0) or 0.0
+    size = getattr(result, "downloaded_bytes", 0) or 0
+    workers = getattr(result, "workers", 1) or 1
+    speed = fmt_speed(size, elapsed)
+    at_once = "one file at a time" if workers == 1 else f"{workers} files at a time"
+    lead = "run time before you stopped" if stopped else "run time"
+    data = f"{fmt_bytes(size)} new" + (f" at {speed}" if speed else "")
+    return fmt_duration(elapsed), f"{lead} · {data} · {at_once}"
 
 
 class DownloadDoneView(View):
@@ -118,11 +132,13 @@ class DownloadDoneView(View):
                  (len(failed), "✕ could not be downloaded"),
                  (len(s["students"]), f"students, {len(s['assignments'])} assignment"
                                       f"{'s' * (len(s['assignments']) != 1)}")]
+        tiles.append(timing_tile(result, stopped))
         for i, (n, text) in enumerate(tiles):
             c = Card("ink" if i == 2 and failed else "")
             c.body.addWidget(label(str(n), "big"))
-            c.body.addWidget(label(text, "muted"))
+            c.body.addWidget(label(text, "muted", wrap=True))
             self.tiles.addWidget(c, 0, i)
+        self.time_tile = self.tiles.itemAtPosition(0, len(tiles) - 1).widget()
         self.problems.setVisible(bool(failed))
         for r, row in enumerate(failed):
             who = f"<b>{row.get('student')}</b>" + (f" · {row['section']}" if row.get("section") else "")

@@ -23,6 +23,8 @@ HERE = Path(__file__).resolve().parent / "golden" / "transcripts"
 RECORD = os.environ.get("PAINTER_GOLDEN_RECORD") == "1"
 TS = re.compile(r"\d{8}_\d{6}")
 UTC_MINUTE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC")    # "started ... UTC"
+RUN_TIME = re.compile(r"\b(Finished|Stopped) in [^:\n]+:")       # "Finished in 2 s:"
+SPEED = re.compile(r", [\d.]+ (?:B|KB|MB|GB)/s\)")              # ", 1.2 MB/s)" varies
 ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)?")
 
 
@@ -33,6 +35,7 @@ class Ctx:
 
     def norm(self, text: str) -> str:
         text = text.replace(str(self.tmp), "<TMP>").replace(str(Path.home()), "<HOME>")
+        text = SPEED.sub(")", RUN_TIME.sub(r"\1 in <TIME>:", text))
         return ISO.sub("<ISO>", UTC_MINUTE.sub("<UTC-MINUTE>", TS.sub("<TS>", text)))
 
     def run(self, *argv):

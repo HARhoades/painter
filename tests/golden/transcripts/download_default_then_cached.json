@@ -25,6 +25,7 @@
     "[7002] Reflection  (due no due date)",
     "",
     "2 file(s). Manifest: <TMP>/out/manifest.csv",
+    "Finished in <TIME>: 2 new file(s) (247 B); one file at a time.",
     "Excel log: <TMP>/out/submission_log_<TS>.xlsx"
    ],
    "stderr": [],
@@ -61,7 +62,8 @@
     "",
     "[7002] Reflection  (due no due date)",
     "",
-    "2 file(s). Manifest: <TMP>/out/manifest.csv"
+    "2 file(s). Manifest: <TMP>/out/manifest.csv",
+    "Finished in <TIME>: 0 new file(s) (0 B), 2 already here; one file at a time."
    ],
    "stderr": [],
    "requests": [

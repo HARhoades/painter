@@ -202,6 +202,22 @@ What changes with more than one at a time:
 Use `--jobs 1` for the old behaviour, or a lower number if Canvas reports
 rate limiting or the network is slow.
 
+### Run time
+
+Every download ends with how long it took and how much it fetched:
+
+```
+Finished in 3 min 42 s: 412 new file(s) (1.20 GB, 5.5 MB/s), 3 already here, 1 failed; 4 files at a time.
+```
+
+("Stopped in …" after a Ctrl+C.) The time runs from the start, listing
+included, to the end. Data and speed count only files fetched this time:
+files already in the folder are skipped, so a rerun into the same folder is
+much faster. To compare worker counts fairly, download into a new folder each
+time. The Excel log's Run Summary sheet records the same figures (run time,
+also in seconds, new data, also in MB, average speed, files at a time, and
+any rate limiting), so each run's log is a record you can compare later.
+
 `manifest.csv` has one row per attachment, including failures, with a
 `status` column: `downloaded`, `cached`, `failed: <reason>`, or with
 `; extract failed` added. Each run merges its rows into the existing manifest
@@ -603,7 +619,9 @@ each assignment: "waiting", "listing submissions…", "12 of 30 files",
 The list scrolls past six assignments. Several files download at once (see
 Settings › Downloads), so assignments overlap: the next one is listed while
 the current one downloads. With one file at a time, a thinner bar also shows
-the student being downloaded. If Canvas refuses requests as over its rate
+the student being downloaded. A clock under the file count shows the time since you pressed Download, and
+the finished screen has a run-time tile with the new data, the average speed
+and the files at a time. If Canvas refuses requests as over its rate
 limit, or Painter has to slow down to stay under it, a rose banner appears
 and stays for the rest of the run, with the running totals (requests
 refused, time waited, lowest remaining allowance) and the number of files

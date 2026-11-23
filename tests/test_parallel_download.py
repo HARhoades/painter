@@ -218,7 +218,7 @@ def test_second_ctrl_c_stops_the_workers_and_leaves_no_part_files(course, tmp_pa
 def test_one_worker_is_the_serial_path_with_the_same_assignment_events(course, tmp_path):
     rep = RecordingReporter()
     res = run(tmp_path, 1, reporter=rep)
-    assert "at a time" not in rep.text()
+    assert "files at a time." not in rep.text()
     finals = {}
     for e in rep.of(AssignmentProgress):
         finals.setdefault(e.assignment_id, []).append(e.state)
