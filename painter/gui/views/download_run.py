@@ -102,6 +102,10 @@ class AssignmentRows(Card):
         self.area.setFrameShape(QFrame.NoFrame)
         self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         inner = QWidget()
+        inner.setObjectName("rows")
+        # The app paints scroll-area contents in the page colour; inside a
+        # card the rows should sit on the card itself.
+        self.area.setStyleSheet("QScrollArea, QWidget#rows { background: transparent; }")
         self.grid = QGridLayout(inner)
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setHorizontalSpacing(14)
