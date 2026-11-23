@@ -27,6 +27,9 @@ Events:
                                     still running (with its percent if known)
   ActionNeeded(message)             the user must do something, e.g. sign in
                                     in the browser window
+  AssignmentProgress(id, name, state, done, total, failed)
+                                    one assignment's share of a parallel
+                                    download (one progress bar each)
 """
 from __future__ import annotations
 
@@ -78,7 +81,19 @@ class ActionNeeded:
     message: str
 
 
-Event = Union[Stage, StudentStart, ItemDone, Waiting, ActionNeeded]
+@dataclass(frozen=True)
+class AssignmentProgress:
+    """Where one assignment stands in a parallel download. Every assignment
+    gets "waiting" first and ends "done" or "stopped"."""
+    assignment_id: int
+    name: str
+    state: str                         # "waiting" | "listing" | "downloading" | "done" | "stopped"
+    done: int = 0                      # files finished (downloaded, cached or failed)
+    total: int | None = None           # None until the listing is in
+    failed: int = 0
+
+
+Event = Union[Stage, StudentStart, ItemDone, Waiting, ActionNeeded, AssignmentProgress]
 
 
 # ---- reporters -----------------------------------------------------------------
@@ -184,6 +199,39 @@ class QueueReporter:
                 out.append(self.queue.get_nowait())
             except queue.Empty:
                 return out
+
+
+class LockedReporter:
+    """Lets several threads share one reporter (parallel downloads): every
+    call goes through a lock. `stop` (a threading.Event), when set, makes
+    cancelled() answer True whatever the wrapped reporter says."""
+
+    def __init__(self, inner: Reporter, stop: threading.Event | None = None):
+        self._inner = inner
+        self._lock = threading.Lock()
+        self._stop = stop
+
+    def info(self, text: str = "", end: str = "\n") -> None:
+        with self._lock:
+            self._inner.info(text, end)
+
+    def warning(self, text: str) -> None:
+        with self._lock:
+            self._inner.warning(text)
+
+    def progress(self, done: int, total: int, label: str = "") -> None:
+        with self._lock:
+            self._inner.progress(done, total, label)
+
+    def event(self, e: Event) -> None:
+        with self._lock:
+            self._inner.event(e)
+
+    def cancelled(self) -> bool:
+        if self._stop is not None and self._stop.is_set():
+            return True
+        with self._lock:
+            return self._inner.cancelled()
 
 
 NULL = NullReporter()

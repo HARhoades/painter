@@ -1,9 +1,12 @@
 """Download run: listings, submission files, manifest and run log."""
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor
+from concurrent.futures import wait as wait_for_futures
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import threading
 
 from painter.canvas.client import Canvas
 from painter.domain.assignments import assignment_folder, quiz_kind
@@ -13,7 +16,8 @@ from painter.domain.roster import Roster
 from painter.domain.selection import Selection
 from painter.errors import Cancelled
 from painter.events import (
-    NULL, ItemDone, Note, Reporter, Stage, StudentStart, emit, watches_canvas,
+    NULL, AssignmentProgress, ItemDone, LockedReporter, Note, Reporter, Stage,
+    StudentStart, emit, watch, watches_canvas,
 )
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
 from painter.storage.runlog_xlsx import RunInfo, log_filename, write_run_log
@@ -226,6 +230,7 @@ class DownloadRequest:
     excel_log: bool = True
     log_dir: Path | None = None            # default: out_root
     run_started: datetime = field(default_factory=datetime.now)
+    workers: int = 1                       # files at once; 1: one at a time, in order
 
 
 @dataclass
@@ -288,10 +293,13 @@ def download_submissions(canvas: Canvas, req: DownloadRequest,
     each file and leaves the tree as a rerun expects (no partial files).
     """
     run, assignments = _start_download(canvas, req, reporter)
-    for n, assign in enumerate(assignments, start=1):
-        _download_assignment(run, assign, n, len(assignments))
-        if run.stopped:
-            break
+    if req.workers > 1:
+        _ParallelDownload(run, assignments).execute()
+    else:
+        for n, assign in enumerate(assignments, start=1):
+            _download_assignment(run, assign, n, len(assignments))
+            if run.stopped:
+                break
     return _finish_download(run)
 
 
@@ -509,6 +517,233 @@ def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,
     if outcome.failed:
         run.failures += 1
     return outcome.status, outcome.target, outcome.extracted_to
+
+
+# --------------------------------------------------------------------------
+# Parallel downloads (workers > 1)
+# --------------------------------------------------------------------------
+# The main thread lists assignment k+1 while the workers download assignment
+# k. Within an assignment the largest files go first; the pool's queue is
+# first-in first-out, so assignments still finish roughly in course order.
+# Workers only run _fetch_one; every row, count, line and event is made on
+# the main thread, so the run's own state needs no lock.
+COLLECT_POLL = 0.25                        # seconds between stop checks while waiting
+
+
+@dataclass
+class _FileJob:
+    index: int                             # listing order: manifest and log keep it
+    aid: int
+    block: tuple[int, int]                 # (assignment id, user id): one student
+    pos: int                               # the file's place in that student's list
+    att: dict
+    sdir: Path
+    fname: str
+    common: dict
+
+    @property
+    def target(self) -> Path:
+        return self.sdir / self.fname
+
+
+@dataclass
+class _Block:
+    """One student's lines, printed together once all their files are in."""
+    aid: int
+    line: str
+    pending: int
+    lines: dict[int, list[Note]] = field(default_factory=dict)
+
+
+@dataclass
+class _Tally:
+    assign: dict
+    state: str = "waiting"
+    done: int = 0
+    total: int | None = None
+    failed: int = 0
+
+
+class _ParallelDownload:
+    def __init__(self, run: _DownloadRun, assignments: list[dict]):
+        self.run = run
+        self.assignments = assignments
+        self.stop_now = threading.Event()  # a second Ctrl+C: workers stop at once
+        run.reporter = self.rep = LockedReporter(run.reporter, self.stop_now)
+        self.tallies = {a["id"]: _Tally(a) for a in assignments}
+        self.blocks: dict[tuple[int, int], _Block] = {}
+        self.pending: dict[Future, _FileJob] = {}
+        self.same_path: dict[Path, list[_FileJob]] = {}   # jobs queued behind one
+        self.rows: list[tuple[int, dict]] = []
+        self.next_index = 0
+        self.done = self.total = 0
+        self.last_aid: int | None = None   # assignment of the last header printed
+        self.pool = ThreadPoolExecutor(max_workers=run.req.workers,
+                                       initializer=run.canvas.attach_thread_session,
+                                       thread_name_prefix="painter-download")
+
+    # ---- the run ------------------------------------------------------------
+    def execute(self) -> None:
+        rep = self.rep
+        rep.info(f"Downloading {self.run.req.workers} files at a time.")
+        rep.event(Stage(f"Downloading {len(self.assignments)} assignment(s)",
+                        step=1, steps=1))
+        for tally in self.tallies.values():
+            self._tell(tally)
+        try:
+            # Pauses and stop checks made on the workers come through the lock.
+            with watch(self.run.canvas, rep):
+                self._list_and_download()
+        except BaseException:
+            # A second Ctrl+C (KeyboardInterrupt) or an unexpected error: stop
+            # the workers within one chunk (their .part files are removed),
+            # rather than leave them running behind the error.
+            self.stop_now.set()
+            self.pool.shutdown(wait=True, cancel_futures=True)
+            raise
+        self._close()
+
+    def _list_and_download(self) -> None:
+        for assign in self.assignments:
+            if self.rep.cancelled():
+                self.run.stopped = True
+                break
+            try:
+                self._list(assign)
+            except Cancelled:              # stopped during a listing pause
+                self.run.stopped = True
+                break
+            self._collect(wait=False)
+            if self.run.stopped:
+                break
+        while self.pending and not self.run.stopped:
+            self._collect(wait=True)
+
+    def _list(self, assign: dict) -> None:
+        run, req, aid = self.run, self.run.req, assign["id"]
+        tally = self.tallies[aid]
+        tally.state = "listing"
+        self._tell(tally)
+        opened = _open_assignment(run, assign)
+        self.last_aid = aid
+        submitted, todo = submissions_to_fetch(run.canvas, req.course_id, aid,
+                                               run.student_ids, req.history)
+        jobs: list[_FileJob] = []
+        for sub, attachments in todo:
+            plan = _plan_submission(run, assign, opened.adir, opened.due, sub, attachments)
+            key = (aid, sub["user_id"])
+            self.blocks[key] = _Block(aid, plan.line, len(plan.files))
+            for pos, (att, fname) in enumerate(plan.files):
+                jobs.append(_FileJob(self.next_index, aid, key, pos, att,
+                                     plan.sdir, fname, plan.common))
+                self.next_index += 1
+        if opened.is_new_quiz and not todo:
+            _note_new_quiz(run, assign, submitted)
+        if jobs:
+            self.rep.info(f"  {len(jobs)} file(s) to download")
+        tally.total = len(jobs)
+        tally.state = "downloading" if jobs else "done"
+        self.total += len(jobs)
+        self._tell(tally)
+        # Largest first; sorted() is stable, so equal sizes keep listing order.
+        for job in sorted(jobs, key=lambda j: -(j.att.get("size") or 0)):
+            self._submit(job)
+
+    def _submit(self, job: _FileJob) -> None:
+        queued = self.same_path.get(job.target)
+        if queued is not None:
+            # Same saved path as a job already running: wait for it, or the
+            # two would write one .part. Run after it, it finds the file cached.
+            queued.append(job)
+            return
+        self.same_path[job.target] = []
+        fut = self.pool.submit(_fetch_one, self.run.canvas, job.att, job.sdir,
+                               job.fname, self.run.req.extract)
+        self.pending[fut] = job
+
+    def _release(self, job: _FileJob) -> None:
+        queued = self.same_path.pop(job.target, [])
+        if queued and not self.run.stopped:
+            nxt, rest = queued[0], queued[1:]
+            self._submit(nxt)
+            self.same_path[nxt.target].extend(rest)
+
+    # ---- collecting results (main thread) -----------------------------------
+    def _collect(self, wait: bool) -> None:
+        if self.pending:
+            finished, _ = wait_for_futures(list(self.pending),
+                                           timeout=COLLECT_POLL if wait else 0,
+                                           return_when=FIRST_COMPLETED)
+            for fut in sorted(finished, key=lambda f: self.pending[f].index):
+                self._finish(self.pending.pop(fut), fut)
+        if self.rep.cancelled():
+            self.run.stopped = True
+
+    def _finish(self, job: _FileJob, fut: Future) -> None:
+        if fut.cancelled():
+            return
+        try:
+            outcome: _FileOutcome = fut.result()
+        except Cancelled:                  # stopped part-way: this file is not saved
+            self.run.stopped = True
+            return
+        self._release(job)
+        run, tally = self.run, self.tallies[job.aid]
+        if outcome.failed:
+            run.failures += 1
+            tally.failed += 1
+        self.rows.append((job.index, {**job.common, "filename": job.fname,
+                                      "status": outcome.status,
+                                      "path": str(outcome.target),
+                                      "extracted_to": outcome.extracted_to}))
+        tally.done += 1
+        self.done += 1
+        self.rep.progress(self.done, self.total, job.fname)
+        self.rep.event(ItemDone("file", job.fname, outcome.status,
+                                job.common["student"], outcome.target))
+        block = self.blocks[job.block]
+        block.lines[job.pos] = outcome.lines
+        block.pending -= 1
+        if block.pending == 0:
+            self._print_block(job.block)
+        if tally.done == tally.total:
+            tally.state = "done"
+            failed = f", {tally.failed} failed" if tally.failed else ""
+            self.rep.info(f"  [{job.aid}] done: {tally.done} file(s){failed}")
+        self._tell(tally)
+
+    def _print_block(self, key: tuple[int, int]) -> None:
+        block = self.blocks.pop(key)
+        if self.last_aid != block.aid:
+            assign = self.tallies[block.aid].assign
+            self.rep.info(f"\n[{assign['id']}] {assign['name']}  (continued)")
+            self.last_aid = block.aid
+        self.rep.info(block.line)
+        for pos in sorted(block.lines):
+            emit(block.lines[pos], self.rep)
+
+    def _close(self) -> None:
+        """After the last file, or after a stop: no partial files remain, every
+        assignment has its final state, and the rows are in listing order."""
+        if self.run.stopped:
+            self.pool.shutdown(wait=True, cancel_futures=True)
+            for fut, job in sorted(self.pending.items(), key=lambda p: p[1].index):
+                self._finish(job, fut)
+            self.pending.clear()
+            for key in [k for k, b in self.blocks.items() if b.lines]:
+                self._print_block(key)     # students cut short: what they got
+            for tally in self.tallies.values():
+                if tally.state != "done":
+                    tally.state = "stopped"
+                    self._tell(tally)
+        else:
+            self.pool.shutdown(wait=True)
+        self.run.rows.extend(row for _, row in sorted(self.rows, key=lambda r: r[0]))
+
+    def _tell(self, tally: _Tally) -> None:
+        a = tally.assign
+        self.rep.event(AssignmentProgress(a["id"], a.get("name", ""), tally.state,
+                                          tally.done, tally.total, tally.failed))
 
 
 def _finish_download(run: _DownloadRun) -> DownloadResult:
