@@ -9,6 +9,8 @@
     "--tz",
     "Mars/Olympus",
     "download",
+    "--jobs",
+    "1",
     "--out",
     "<TMP>/o"
    ],

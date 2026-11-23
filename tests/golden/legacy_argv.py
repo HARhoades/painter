@@ -13,7 +13,7 @@ WITH_VALUE = {
     "--log-dir", "--post-grades", "--assignment-label", "--ay", "--term",
     "--grade-file-dir", "--roster-csv", "--organize", "--roster", "--organize-to",
     "--browser-profile", "--browser-channel", "--connect-browser", "--signin-timeout",
-    "--page-timeout", "--delay", "--limit", "--export-timeout",
+    "--page-timeout", "--delay", "--limit", "--export-timeout", "--jobs",
 }
 GLOBAL = {"--base-url", "--course", "--tz"}
 RENAMED = {

@@ -116,6 +116,7 @@ painter list students --base-url URL --course 12345 --section "Lab 002" --studen
 ```
 painter download --base-url URL --course 12345 [--assignment ID ...] [--section SPEC ...] [--student SPEC ...]
                  [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx] [--log-dir DIR]
+                 [--jobs N]
 ```
 
 | Option | Meaning |
@@ -129,6 +130,7 @@ painter download --base-url URL --course 12345 [--assignment ID ...] [--section 
 | `--history` | also fetch earlier attempts (resubmissions) |
 | `--no-xlsx` | skip the Excel run log |
 | `--log-dir DIR` | where the Excel log goes (default `--out`) |
+| `--jobs N` | files to download at once, 1-8 (default 4); `--jobs 1` downloads one at a time, in order |
 
 Output layout:
 
@@ -168,6 +170,32 @@ out/
 - Archive members that would land outside their folder are skipped.
 - New Quiz submissions have no attachments (the files stay inside New
   Quizzes); the run says so and suggests `painter quiz export --uploads`.
+
+### Several files at once
+
+By default Painter downloads 4 files at a time (`--jobs`; in the window,
+Settings › Files to download at once). While the files of one assignment
+download, Painter already lists the next assignment's submissions, so
+there is no pause between assignments. Within an assignment the largest
+files start first.
+
+What changes with more than one at a time:
+
+- Each student's lines (the "submitted" line and their files) are printed
+  together once all their files are in, so students finish in any order.
+  When a student's lines belong to an earlier assignment than the last
+  heading printed, the heading is repeated with "(continued)". Each
+  assignment ends with `[id] done: N file(s)`, plus how many failed.
+- `manifest.csv` and the Excel log are in the same order as a one-at-a-time
+  run.
+- If Canvas starts rate-limiting, every download waits, not only the one
+  that was refused.
+- Ctrl+C once stops after the files in progress (a large file stops
+  part-way and is not kept); the manifest and log are still written and a
+  rerun picks up where it left off. Ctrl+C twice stops at once.
+
+Use `--jobs 1` for the old behaviour, or a lower number if Canvas reports
+rate limiting or the network is slow.
 
 `manifest.csv` has one row per attachment, including failures, with a
 `status` column: `downloaded`, `cached`, `failed: <reason>`, or with

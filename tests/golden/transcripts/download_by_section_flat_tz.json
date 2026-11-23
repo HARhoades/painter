@@ -9,6 +9,8 @@
     "--tz",
     "America/New_York",
     "download",
+    "--jobs",
+    "1",
     "--out",
     "<TMP>/o",
     "--assignment",

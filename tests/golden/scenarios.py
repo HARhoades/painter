@@ -175,19 +175,19 @@ def list_students_unknown_assignment(c):
 # ---- download ------------------------------------------------------------------
 @scenario
 def download_default_then_cached(c):
-    c.run(*COMMON, "--out", str(c.tmp / "out"))
-    c.run(*COMMON, "--out", str(c.tmp / "out"), "--no-xlsx")
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "out"))
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "out"), "--no-xlsx")
 
 
 @scenario
 def download_by_section_flat_tz(c):
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--assignment", "7001", "--section", "A2",
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--assignment", "7001", "--section", "A2",
           "--by-section", "--flat", "--no-extract", "--no-xlsx", "--tz", "America/New_York")
 
 
 @scenario
 def download_by_section_nested(c):
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--by-section", "--log-dir", str(c.tmp / "logs"))
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--by-section", "--log-dir", str(c.tmp / "logs"))
 
 
 @scenario
@@ -196,42 +196,42 @@ def download_student_filter_and_history(c):
         {"attachments": [{"id": 3, "display_name": "essay.pdf", "url": f"{FILES}/f/3",
                           "size": 5}]}]
     c.fake.file_bodies["/f/3"] = b"draft"
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--student", "jdoe2", "--history", "--no-xlsx")
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--student", "jdoe2", "--history", "--no-xlsx")
 
 
 @scenario
 def download_failure(c):
     del c.fake.file_bodies["/f/1"]
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--no-xlsx")
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--no-xlsx")
 
 
 @scenario
 def download_nothing_submitted(c):
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--assignment", "7002", "--no-xlsx")
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--assignment", "7002", "--no-xlsx")
 
 
 @scenario
 def download_new_quiz_hint(c):
     add_new_quiz(c.fake)
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--assignment", "7003", "--no-xlsx")
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--assignment", "7003", "--no-xlsx")
 
 
 @scenario
 def download_legacy_folder_renamed(c):
     (c.tmp / "o" / "03_DATE-Scenario" / "Doe-Jane_501").mkdir(parents=True)
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--assignment", "7001", "--no-xlsx",
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--assignment", "7001", "--no-xlsx",
           "--no-extract")
 
 
 @scenario
 def download_bad_token(c):
     status(c.fake, "GET", "/api/v1/courses/100/assignments", 401)
-    c.run(*COMMON, "--out", str(c.tmp / "o"))
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"))
 
 
 @scenario
 def download_bad_timezone(c):
-    c.run(*COMMON, "--out", str(c.tmp / "o"), "--tz", "Mars/Olympus")
+    c.run(*COMMON, "--jobs", "1", "--out", str(c.tmp / "o"), "--tz", "Mars/Olympus")
 
 
 # ---- roster CSV ------------------------------------------------------------------

@@ -101,7 +101,7 @@ def download(args, parser) -> int:
         by_section=args.by_section, flat=args.flat, extract=not args.no_extract,
         history=args.history, tz=args.tz, excel_log=not args.no_xlsx,
         log_dir=Path(args.log_dir) if args.log_dir else None,
-        run_started=datetime.now())
+        run_started=datetime.now(), workers=args.jobs)
     with CONSOLE.stoppable():
         result = download_submissions(canvas, req, CONSOLE)
     return exit_codes.PROBLEMS if result.failures else exit_codes.OK

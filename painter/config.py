@@ -11,6 +11,19 @@ import sys
 TOKEN_ENV = "CANVAS_API_TOKEN"
 
 
+# Files a download fetches at once: the window's Settings and the CLI's
+# --jobs share this default and range (phase 7).
+DEFAULT_WORKERS = 4
+MAX_WORKERS = 8
+
+
+def clamp_workers(value) -> int:
+    """A worker count from a settings file: 1..MAX_WORKERS, else the default."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return DEFAULT_WORKERS
+    return value if 1 <= value <= MAX_WORKERS else DEFAULT_WORKERS
+
+
 LEGACY_BROWSER_PROFILE = "canvas-browser-profile"   # old default, relative to cwd
 
 
@@ -108,6 +121,7 @@ class Settings:
     course_naming: dict = field(default_factory=dict)   # course id -> {"prefix", "term",
                                                         #   "bases": {assignment id: base}}
     confirm_save: bool = True                       # ask before saving edits to grade files
+    download_workers: int = DEFAULT_WORKERS         # files a download fetches at once
     extra: dict = field(default_factory=dict)       # keys this version doesn't know
 
 
@@ -127,6 +141,7 @@ def load_settings(path: Path | None = None) -> Settings:
     known = {f.name for f in fields(Settings)} - {"extra"}
     s = Settings(**{k: v for k, v in data.items() if k in known})
     s.extra = {k: v for k, v in data.items() if k not in known}
+    s.download_workers = clamp_workers(s.download_workers)
     return s
 
 

@@ -7,6 +7,8 @@
     "--course",
     "100",
     "download",
+    "--jobs",
+    "1",
     "--out",
     "<TMP>/o",
     "--assignment",

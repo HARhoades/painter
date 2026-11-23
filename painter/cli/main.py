@@ -19,7 +19,7 @@ import sys
 import textwrap
 
 from painter.cli import commands, exit_codes
-from painter.config import default_browser_profile
+from painter.config import DEFAULT_WORKERS, MAX_WORKERS, default_browser_profile
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,6 +148,19 @@ def _add_download(subs) -> None:
                    help="also fetch earlier attempts (resubmissions)")
     p.add_argument("--no-xlsx", action="store_true", help="skip the Excel run log")
     p.add_argument("--log-dir", metavar="DIR", help="where the Excel log goes (default --out)")
+    p.add_argument("--jobs", type=_workers, default=DEFAULT_WORKERS, metavar="N",
+                   help=f"files to download at once, 1-{MAX_WORKERS} (default "
+                        f"{DEFAULT_WORKERS}; 1 downloads one at a time, in order)")
+
+
+def _workers(text: str) -> int:
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if not 1 <= n <= MAX_WORKERS:
+        raise argparse.ArgumentTypeError(f"must be a whole number from 1 to {MAX_WORKERS}")
+    return n
 
 
 def _add_roster(subs) -> None:

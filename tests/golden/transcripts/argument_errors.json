@@ -36,7 +36,7 @@
     "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
     "                        [--assignment ID] [--section SPEC] [--student SPEC] [--exclude SPEC]",
     "                        [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
-    "                        [--log-dir DIR]",
+    "                        [--log-dir DIR] [--jobs N]",
     "painter download: error: --base-url is required"
    ],
    "requests": [],
@@ -54,7 +54,7 @@
     "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
     "                        [--assignment ID] [--section SPEC] [--student SPEC] [--exclude SPEC]",
     "                        [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
-    "                        [--log-dir DIR]",
+    "                        [--log-dir DIR] [--jobs N]",
     "painter download: error: --course is required"
    ],
    "requests": [],
@@ -74,7 +74,7 @@
     "usage: painter download [-h] [--base-url BASE_URL] [--course COURSE] [--tz ZONE] [--debug]",
     "                        [--assignment ID] [--section SPEC] [--student SPEC] [--exclude SPEC]",
     "                        [--out DIR] [--by-section] [--flat] [--no-extract] [--history] [--no-xlsx]",
-    "                        [--log-dir DIR]",
+    "                        [--log-dir DIR] [--jobs N]",
     "painter download: error: --base-url must be an https:// address, e.g. https://yourschool.instructure.com (got 'http://canvas.test')"
    ],
    "requests": [],
