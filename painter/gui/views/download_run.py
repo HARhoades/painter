@@ -7,7 +7,9 @@ from PySide6.QtWidgets import (
     QProgressBar, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from painter.events import AssignmentProgress, ItemDone, Stage, StudentStart, Waiting
+from painter.events import (
+    AssignmentProgress, ItemDone, RateLimit, Stage, StudentStart, Waiting,
+)
 from painter.gui.views import View
 from painter.gui.widgets import (
     Banner, Card, FoldButton, button, heading, hbox, label, pill_cell, restyle,
@@ -31,6 +33,39 @@ def overall_fraction(done: int, prior: int, stage_total: int, expected: int | No
         inner = stage_done / stage_total if stage_total else 0.0   # nothing known yet: 0%
         return min(((step - 1) + inner) / steps, 1.0), None
     return 0.0, None
+
+
+def fmt_seconds(s: float) -> str:
+    if s < 1:
+        return "under a second"
+    s = round(s)
+    return f"{s} s" if s < 60 else f"{s // 60} min {s % 60:02d} s"
+
+
+def rate_text(use: RateLimit, finished: bool = False) -> tuple[str, str]:
+    """(title, body) for the rate-limit banner, while running or at the end."""
+    so_far = "" if finished else " so far"
+    if use.throttled:
+        title = ("Canvas rate-limited this download" if finished
+                 else "Canvas is rate-limiting this download")
+    else:
+        title = "Painter slowed down to stay under Canvas's rate limit"
+    bits = []
+    if use.throttled:
+        n = use.throttled
+        bits.append(f"Canvas refused {n} request{'s' * (n != 1)}{so_far} as over its limit; "
+                    f"Painter waited {fmt_seconds(use.throttle_seconds)} and retried "
+                    f"{'them' if n != 1 else 'it'}.")
+    if use.paced_seconds:
+        bits.append(f"Painter paused {fmt_seconds(use.paced_seconds)}{so_far} before "
+                    "the limit ran out.")
+    if use.lowest_remaining is not None:
+        bits.append(f"Lowest remaining allowance: {use.lowest_remaining:.0f}.")
+    w = use.workers
+    bits.append(f"Downloading {w} file{'s' * (w != 1)} at a time. Nothing is lost either "
+                "way; if this shows on most downloads, lower Settings › Downloads › "
+                "Files to download at once.")
+    return title, " ".join(bits)
 
 
 def assignment_caption(e: AssignmentProgress) -> str:
@@ -173,26 +208,16 @@ class DownloadRunView(View):
         self.page.addWidget(top)
         self.wait = Banner()
         self.page.addWidget(self.wait)
+        # Stays up for the rest of the run once Canvas's limit is hit or
+        # neared (the wait banner above clears when files arrive again).
+        self.rate = Banner()
+        self.rate.setAccessibleName("Rate limiting")
+        self.page.addWidget(self.rate)
         self.assignments = AssignmentRows()
         self.assignments.setVisible(False)
         self.page.addWidget(self.assignments)
 
-        files = Card()
-        self.files_head = label("Files", "h2")
-        self.problems_only = QCheckBox("Problems only")
-        self.problems_only.toggled.connect(self._filter)
-        files.body.addLayout(hbox(self.files_head, None, self.problems_only))
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Student", "File", "Status"])
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.setColumnWidth(0, 220)
-        self.table.setColumnWidth(2, 260)
-        self.table.setMinimumHeight(260)
-        files.body.addWidget(self.table)
-        self.page.addWidget(files)
+        self.page.addWidget(self._files_card())
 
         self.log_btn = FoldButton()
         self.log_btn.toggled.connect(self._toggle_log)
@@ -213,6 +238,25 @@ class DownloadRunView(View):
         r.cancelled.connect(lambda res: self._ended(res, True))
         r.failed.connect(self._failed)
 
+    def _files_card(self) -> Card:
+        """Every file as it lands, newest first, with a Problems only filter."""
+        files = Card()
+        self.files_head = label("Files", "h2")
+        self.problems_only = QCheckBox("Problems only")
+        self.problems_only.toggled.connect(self._filter)
+        files.body.addLayout(hbox(self.files_head, None, self.problems_only))
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Student", "File", "Status"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.setColumnWidth(0, 220)
+        self.table.setColumnWidth(2, 260)
+        self.table.setMinimumHeight(260)
+        files.body.addWidget(self.table)
+        return files
+
     def _mine(self) -> bool:
         return self.win.current is self
 
@@ -223,6 +267,7 @@ class DownloadRunView(View):
         self.request, self.expected = request, expected
         self.parallel = getattr(request, "workers", 1) > 1
         self.assignments.clear()
+        self.rate.set("info")                    # hidden until Canvas pushes back
         self.done_total = self.prior = self.stage_done = self.stage_total = 0
         self.step, self.steps, self.stage_name = 1, 1, ""
         self.student_done = 0
@@ -287,6 +332,8 @@ class DownloadRunView(View):
                                            "waits and carries on.")
         elif isinstance(e, AssignmentProgress):
             self.assignments.apply(e)
+        elif isinstance(e, RateLimit) and e.limited:
+            self.rate.set("attention", *rate_text(e))
         elif isinstance(e, ItemDone) and e.kind == "file":
             self._add_row(e)
 

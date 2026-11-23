@@ -236,3 +236,62 @@ def test_serial_stop_marks_the_rest_stopped(course, tmp_path):
     for e in rep.of(AssignmentProgress):
         finals[e.assignment_id] = e.state
     assert "stopped" in finals.values() and set(finals.values()) <= {"done", "stopped"}
+
+
+# ---- rate limiting: reported live and on the result ---------------------------
+def throttle_once(monkeypatch, fake, path, retry_after="3", remaining=None):
+    """Canvas refuses the first request for `path` as over the limit."""
+    import requests
+    real, seen = fake.handle, set()
+
+    def handle(session, method, url, **kw):
+        if url.endswith(path) and path not in seen:
+            seen.add(path)
+            return make_response(url, 429, headers={"Retry-After": retry_after})
+        resp = real(session, method, url, **kw)
+        if remaining is not None and "/submissions" in url:
+            resp.headers["X-Rate-Limit-Remaining"] = remaining
+        return resp
+    monkeypatch.setattr(requests.Session, "request", lambda s, m, u, **kw: handle(s, m, u, **kw))
+
+
+@pytest.mark.parametrize("workers", [1, 4])
+def test_a_throttled_request_is_reported(course, tmp_path, monkeypatch, workers):
+    from painter.events import RateLimit
+    throttle_once(monkeypatch, course, "/f/7101-502-1")
+    rep = RecordingReporter()
+    res = run(tmp_path, workers, reporter=rep)
+    assert res.failures == 0                                 # retried, then fetched
+    assert res.rate == RateLimit(throttled=1, throttle_seconds=3.0, workers=workers)
+    assert rep.of(RateLimit)[-1] == res.rate
+    assert ("Canvas rate limiting during this run: 1 request(s) refused, waited 3s "
+            f"({workers} file(s) at a time)") in rep.text("warning")
+
+
+def test_pacing_alone_is_reported_with_the_lowest_allowance(course, tmp_path, monkeypatch):
+    from painter.events import RateLimit
+    throttle_once(monkeypatch, course, "/nothing", remaining="50")
+    rep = RecordingReporter()
+    res = run(tmp_path, 4, reporter=rep)
+    assert res.rate.throttled == 0 and res.rate.paced_seconds > 0
+    assert res.rate.lowest_remaining == 50.0 and res.rate.limited
+    assert "lowest remaining 50" in rep.text("warning")
+
+
+def test_no_rate_limiting_no_report(course, tmp_path):
+    from painter.events import RateLimit
+    rep = RecordingReporter()
+    res = run(tmp_path, 4, reporter=rep)
+    assert res.rate is None and rep.of(RateLimit) == []
+    assert "rate limiting" not in rep.text()
+
+
+def test_each_run_counts_only_its_own_rate_limiting(course, tmp_path, monkeypatch):
+    """The window keeps one Canvas client; a later run doesn't inherit counts."""
+    throttle_once(monkeypatch, course, "/f/7101-502-1")
+    canvas = Canvas(BASE, "t")
+    first = download_submissions(canvas, DownloadRequest(100, tmp_path / "a", (7101,),
+                                                         excel_log=False, workers=4))
+    second = download_submissions(canvas, DownloadRequest(100, tmp_path / "b", (7101,),
+                                                          excel_log=False, workers=4))
+    assert first.rate.throttled == 1 and second.rate is None

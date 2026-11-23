@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QGridLayout, QWidget
 
 from painter.gui.run_details import RunDetails
 from painter.gui.views import View
+from painter.gui.views.download_run import rate_text
 from painter.gui.widgets import Banner, Card, button, clear, heading, hbox, label, show_problem
 
 
@@ -43,6 +44,9 @@ class DownloadDoneView(View):
         self.page.addWidget(head)
         self.error = Banner()
         self.page.addWidget(self.error)
+        self.rate = Banner()
+        self.rate.setAccessibleName("Rate limiting")
+        self.page.addWidget(self.rate)
         self.tiles = QGridLayout()
         self.tiles.setSpacing(14)
         self.page.addLayout(self.tiles)
@@ -80,6 +84,11 @@ class DownloadDoneView(View):
         clear(self.problems_body)
         self.error.clear_actions()
         self.error.set("info")
+        use = getattr(result, "rate", None)
+        if use is not None and use.limited:
+            self.rate.set("attention", *rate_text(use, finished=True))
+        else:
+            self.rate.set("info")
         if error is not None:
             self.h1.setText("The download didn't finish")
             self.sub.setText("Files saved before the problem are kept; running it again "

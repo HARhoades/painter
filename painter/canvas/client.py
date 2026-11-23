@@ -112,7 +112,9 @@ class Canvas:
         self.on_wait = None              # callable(reason, seconds, percent)
         self.should_stop = None          # callable() -> bool
         self.stats = {"requests": 0, "throttled": 0, "retries": 0,
-                      "paced_seconds": 0.0, "min_remaining": None}
+                      "paced_seconds": 0.0, "min_remaining": None,
+                      "throttle_seconds": 0.0}
+        self._mark_min: float | None = None  # lowest remaining since rate_mark()
         # Parallel downloads: stats and the throttle gate are shared between
         # threads, so every change to them goes through this lock. Held only
         # for the update itself, never across a request or a sleep.
@@ -167,6 +169,8 @@ class Canvas:
         with self._lock:
             low = self.stats["min_remaining"]
             self.stats["min_remaining"] = remaining if low is None else min(low, remaining)
+            mark = self._mark_min
+            self._mark_min = remaining if mark is None else min(mark, remaining)
         return remaining
 
     def wait(self, seconds: float, reason: str, percent: float | None = None,
@@ -242,6 +246,7 @@ class Canvas:
                 resp.close()
                 # A throttled request was not processed, so stopping here is safe
                 delay = backoff_delay(attempt, retry_after_seconds(resp))
+                self._bump("throttle_seconds", delay)
                 self._hold_off(delay)        # other threads wait too
                 self.wait(delay, "Canvas is rate-limiting requests; retrying")
                 continue
@@ -327,6 +332,24 @@ class Canvas:
             note = (f"      ! {dest.name}: {written} bytes, Canvas listed "
                     f"{expected_size}")
         return FetchResult(True, note)
+
+    def rate_mark(self) -> dict:
+        """Start counting rate-limit use for one run; pass the result to
+        rate_since(). Also restarts "lowest remaining" for the run."""
+        with self._lock:
+            self._mark_min = None
+            return dict(self.stats)
+
+    def rate_since(self, mark: dict) -> dict:
+        """Rate-limit use since rate_mark(): throttled (requests Canvas refused
+        as over the limit), throttle_seconds (backoff after those), paced_seconds
+        (slowing down before the limit), lowest_remaining (None if Canvas sent
+        no X-Rate-Limit-Remaining)."""
+        with self._lock:
+            return {"throttled": self.stats["throttled"] - mark["throttled"],
+                    "throttle_seconds": self.stats["throttle_seconds"] - mark["throttle_seconds"],
+                    "paced_seconds": self.stats["paced_seconds"] - mark["paced_seconds"],
+                    "lowest_remaining": self._mark_min}
 
     def rate_summary(self) -> str:
         s = self.stats

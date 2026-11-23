@@ -112,3 +112,59 @@ def test_captions():
     assert c(state="done", done=1, total=1) == "✓  1 file"
     assert c(state="done", done=5, total=5, failed=2) == "3 of 5 · 2 failed"
     assert c(state="downloading", done=0, total=4) == "0 of 4 files"
+
+
+# ---- rate limiting banner -------------------------------------------------------
+def test_rate_limit_banner_appears_and_stays_for_the_run(window, setup, qtbot, monkeypatch):
+    from painter.events import RateLimit, Waiting
+    gate = threading.Event()
+    use = RateLimit(throttled=2, throttle_seconds=7.4, lowest_remaining=12, workers=4)
+
+    def fake_download(canvas, req, reporter):
+        reporter.event(Waiting("Canvas is rate-limiting requests; retrying", 4))
+        reporter.event(use)
+        reporter.event(ItemDone("file", "x.pdf", "downloaded", "Doe, Jane"))
+        reporter.progress(1, 2, "x.pdf")                # clears the wait banner
+        gate.wait(5)
+        return DownloadResult([{"status": "downloaded", "user_id": 501,
+                                "assignment_id": 7001}], 0, [], rate=use)
+    monkeypatch.setattr("painter.gui.views.download_run.download_submissions", fake_download)
+    tick(setup, 7001)
+    setup.picker.section_buttons[11].setChecked(True)
+    run = window.views["download_run"]
+    with qtbot.waitSignal(window.runner.finished, timeout=5000):
+        setup.start()
+        qtbot.waitUntil(lambda: not run.rate.isHidden(), timeout=3000)
+        qtbot.waitUntil(lambda: run.big.text() == "1", timeout=3000)
+        assert run.rate.property("kind") == "attention"
+        assert run.rate.title.text() == "Canvas is rate-limiting this download"
+        body = run.rate.text.text()
+        assert "refused 2 requests so far" in body and "waited 7 s" in body
+        assert "Lowest remaining allowance: 12." in body
+        assert "Downloading 4 files at a time" in body
+        assert "Files to download at once" in body
+        assert not run.rate.isHidden()                  # still up after files arrived
+        gate.set()
+    done = window.views["download_done"]
+    assert window.current is done and not done.rate.isHidden()
+    assert done.rate.title.text() == "Canvas rate-limited this download"
+    assert "so far" not in done.rate.text.text()
+
+
+def test_no_rate_limit_banner_on_a_clean_run(window, setup, qtbot):
+    tick(setup, 7001)
+    setup.picker.section_buttons[11].setChecked(True)
+    with qtbot.waitSignal(window.runner.finished, timeout=10000):
+        setup.start()
+    assert window.views["download_run"].rate.isHidden()
+    assert window.views["download_done"].rate.isHidden()
+
+
+def test_rate_text_pacing_only_and_long_waits():
+    from painter.events import RateLimit
+    from painter.gui.views.download_run import fmt_seconds, rate_text
+    title, body = rate_text(RateLimit(paced_seconds=95, workers=1), finished=True)
+    assert title == "Painter slowed down to stay under Canvas's rate limit"
+    assert "paused 1 min 35 s before the limit ran out" in body
+    assert "1 file at a time" in body and "refused" not in body
+    assert fmt_seconds(0.3) == "under a second" and fmt_seconds(5) == "5 s"

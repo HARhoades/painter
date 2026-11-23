@@ -16,7 +16,7 @@ from painter.domain.roster import Roster
 from painter.domain.selection import Selection
 from painter.errors import Cancelled
 from painter.events import (
-    NULL, AssignmentProgress, ItemDone, LockedReporter, Note, Reporter, Stage,
+    NULL, AssignmentProgress, ItemDone, LockedReporter, Note, RateLimit, Reporter, Stage,
     StudentStart, emit, watch, watches_canvas,
 )
 from painter.storage.files import ARCHIVE_SUFFIXES, download, extract
@@ -240,6 +240,7 @@ class DownloadResult:
     new_quizzes_without_files: list[dict]  # New Quizzes: uploads not reachable here
     manifest: Path | None = None
     log_path: Path | None = None
+    rate: RateLimit | None = None          # Canvas rate limiting in this run, if any
 
 
 @dataclass
@@ -260,6 +261,7 @@ class _DownloadRun:
     stage_total: int = 0
     new_quizzes_without_files: list[dict] = field(default_factory=list)
     tallies: dict[int, "_Tally"] = field(default_factory=dict)   # per-assignment progress
+    rate: "_RateWatch | None" = None
 
 
 def submissions_to_fetch(canvas: Canvas, course_id: int, assignment_id: int,
@@ -360,7 +362,43 @@ def _start_download(canvas: Canvas, req: DownloadRequest,
     if req.assignment_ids:
         wanted = set(req.assignment_ids)
         assignments = [a for a in assignments if a["id"] in wanted]
-    return _DownloadRun(canvas, req, reporter, tz, roster, student_ids, section_ids), assignments
+    run = _DownloadRun(canvas, req, reporter, tz, roster, student_ids, section_ids)
+    run.rate = _RateWatch(canvas, req.workers)
+    return run, assignments
+
+
+class _RateWatch:
+    """Counts this run's rate-limit use and reports it when it changes
+    (main thread only)."""
+
+    def __init__(self, canvas: Canvas, workers: int):
+        self.canvas, self.workers = canvas, workers
+        self.mark = canvas.rate_mark()
+        self.last: RateLimit | None = None
+
+    def now(self) -> RateLimit:
+        use = self.canvas.rate_since(self.mark)
+        return RateLimit(use["throttled"], use["throttle_seconds"], use["paced_seconds"],
+                         use["lowest_remaining"], self.workers)
+
+    def check(self, reporter: Reporter) -> None:
+        use = self.now()
+        if use.limited and use != self.last:
+            self.last = use
+            reporter.event(use)
+
+
+def _rate_line(use: RateLimit) -> str:
+    parts = []
+    if use.throttled:
+        parts.append(f"{use.throttled} request(s) refused, waited {use.throttle_seconds:.0f}s")
+    if use.paced_seconds:
+        parts.append(f"paused {use.paced_seconds:.0f}s to stay under the limit")
+    if use.lowest_remaining is not None:
+        parts.append(f"lowest remaining {use.lowest_remaining:.0f}")
+    return (f"Canvas rate limiting during this run: {'; '.join(parts)} "
+            f"({use.workers} file(s) at a time). If this happens often, download "
+            "fewer files at once (--jobs, or Settings › Downloads).")
 
 
 @dataclass
@@ -408,6 +446,8 @@ def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int)
     tally.total = run.stage_total
     tally.state = "downloading" if run.stage_total else "done"
     _tell(run, assign["id"])
+    if run.rate:
+        run.rate.check(reporter)
     reporter.event(Stage(f"Downloading {assign['name']}", total=run.stage_total,
                          step=step, steps=steps))
     reporter.progress(0, run.stage_total, assign["name"])
@@ -510,6 +550,8 @@ def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDa
             tally.done += 1
             tally.failed += status_text.startswith("failed")
             _tell(run, assign["id"])
+        if run.rate:
+            run.rate.check(run.reporter)
 
 
 @dataclass
@@ -717,6 +759,7 @@ class _ParallelDownload:
                                            return_when=FIRST_COMPLETED)
             for fut in sorted(finished, key=lambda f: self.pending[f].index):
                 self._finish(self.pending.pop(fut), fut)
+        self.run.rate.check(self.rep)
         if self.rep.cancelled():
             self.run.stopped = True
 
@@ -791,6 +834,11 @@ def _finish_download(run: _DownloadRun) -> DownloadResult:
     req, reporter, rows = run.req, run.reporter, run.rows
     out_root = Path(req.out_root)
     result = DownloadResult(rows, run.failures, run.new_quizzes_without_files)
+    if run.rate:
+        use = run.rate.now()
+        if use.limited:
+            result.rate = use
+            run.rate.check(reporter)          # the last running total, for the window
     if run.new_quizzes_without_files:
         reporter.info("\nNew Quiz file uploads can't be fetched with the Submissions API. "
                       "To try pulling them from the quiz's answers report instead, run:")
@@ -812,6 +860,8 @@ def _finish_download(run: _DownloadRun) -> DownloadResult:
         reporter.info("\nNo submission files found."
                       + (" (New Quizzes skipped for the reason above.)"
                          if run.new_quizzes_without_files else ""))
+    if result.rate:
+        reporter.warning(_rate_line(result.rate))
 
     # The Excel log is written even on an empty run, so there is a record
     # that the run happened and matched nothing.

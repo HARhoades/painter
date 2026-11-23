@@ -30,6 +30,8 @@ Events:
   AssignmentProgress(id, name, state, done, total, failed)
                                     one assignment's share of a parallel
                                     download (one progress bar each)
+  RateLimit(throttled, ...)         Canvas's rate limit was hit or neared
+                                    during this run (running totals)
 """
 from __future__ import annotations
 
@@ -93,7 +95,23 @@ class AssignmentProgress:
     failed: int = 0
 
 
-Event = Union[Stage, StudentStart, ItemDone, Waiting, ActionNeeded, AssignmentProgress]
+@dataclass(frozen=True)
+class RateLimit:
+    """Rate-limit use in one run, so far (an event) or in all (on the result).
+    Sent only when something happened; each one replaces the last."""
+    throttled: int = 0                 # requests Canvas refused as over its limit
+    throttle_seconds: float = 0.0      # backoff after those (one thread's wait each)
+    paced_seconds: float = 0.0         # slowing down before the limit ran out
+    lowest_remaining: float | None = None   # lowest X-Rate-Limit-Remaining seen
+    workers: int = 1                   # files the run fetched at once
+
+    @property
+    def limited(self) -> bool:
+        return self.throttled > 0 or self.paced_seconds > 0
+
+
+Event = Union[Stage, StudentStart, ItemDone, Waiting, ActionNeeded, AssignmentProgress,
+              RateLimit]
 
 
 # ---- reporters -----------------------------------------------------------------

@@ -94,3 +94,20 @@ def test_setting_round_trips(tmp_path):
     s.download_workers = 6
     save_settings(s, p)
     assert load_settings(p).download_workers == 6
+
+
+def test_rate_limiting_is_reported_at_the_end(fake_canvas, run_cli, tmp_path, monkeypatch):
+    import requests
+    from conftest import make_response
+    real, seen = fake_canvas.handle, []
+
+    def handle(session, method, url, **kw):
+        if url.endswith("/f/1") and not seen:
+            seen.append(url)
+            return make_response(url, 429, headers={"Retry-After": "2"})
+        return real(session, method, url, **kw)
+    monkeypatch.setattr(requests.Session, "request", lambda s, m, u, **kw: handle(s, m, u, **kw))
+    code, out, err = run_cli(*COMMON, "download", "--out", str(tmp_path / "o"), "--no-xlsx")
+    assert code == exit_codes.OK
+    assert "Canvas rate limiting during this run: 1 request(s) refused, waited 2s " \
+           "(4 file(s) at a time)" in err

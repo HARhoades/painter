@@ -189,7 +189,12 @@ What changes with more than one at a time:
 - `manifest.csv` and the Excel log are in the same order as a one-at-a-time
   run.
 - If Canvas starts rate-limiting, every download waits, not only the one
-  that was refused.
+  that was refused. At the end of a run where that happened (or where
+  Painter slowed down before the limit ran out), a line on stderr gives the
+  totals: `Canvas rate limiting during this run: 2 request(s) refused,
+  waited 7s; paused 10s to stay under the limit; lowest remaining 12 (4
+  file(s) at a time).` Runs without it print nothing extra, so comparing a
+  few runs at different `--jobs` shows where the limit starts.
 - Ctrl+C once stops after the files in progress (a large file stops
   part-way and is not kept); the manifest and log are still written and a
   rerun picks up where it left off. Ctrl+C twice stops at once.
@@ -598,8 +603,14 @@ each assignment: "waiting", "listing submissions…", "12 of 30 files",
 The list scrolls past six assignments. Several files download at once (see
 Settings › Downloads), so assignments overlap: the next one is listed while
 the current one downloads. With one file at a time, a thinner bar also shows
-the student being downloaded. The screen also shows Canvas's rate-limit
-pauses, every file (✓ downloaded, ↺ already here, ✕ failed) and, folded, the
+the student being downloaded. If Canvas refuses requests as over its rate
+limit, or Painter has to slow down to stay under it, a rose banner appears
+and stays for the rest of the run, with the running totals (requests
+refused, time waited, lowest remaining allowance) and the number of files
+at a time; the finished screen repeats it. Use it to pick Settings ›
+Downloads › Files to download at once: the highest number that doesn't
+bring the banner up. The screen also shows each rate-limit pause as it
+happens, every file (✓ downloaded, ↺ already here, ✕ failed) and, folded, the
 same log the command line prints. "Stop" stops cleanly: files in progress
 stop part-way and are not kept, the manifest and log are written, and running
 again picks up where it left off (with one file at a time the button reads
