@@ -45,6 +45,9 @@ DOWNLOAD_ATTEMPTS = 4       # whole-file retries when a transfer is cut off
 WAIT_SLICE = 1.0            # longest sleep between cancel checks, seconds
 
 
+STOP_CHECK_BYTES = 1 << 20  # a download asks whether to stop after each MiB
+
+
 def is_throttled(resp: requests.Response) -> bool:
     """429, or the older 403 whose body says the rate limit was exceeded."""
     if resp.status_code == 429:
@@ -291,6 +294,10 @@ class Canvas:
         backoff; a transfer cut off part-way is restarted from scratch up to
         DOWNLOAD_ATTEMPTS times. Written to <dest>.part and renamed only when
         complete, so a failed run never leaves a truncated file in place.
+
+        With should_stop set, a long transfer asks after every
+        STOP_CHECK_BYTES whether to stop, and raises Cancelled (the .part is
+        removed), so Stop doesn't wait for a large file to finish.
         """
         if dest.exists() and (expected_size is None or dest.stat().st_size == expected_size):
             return FetchResult(False)  # already have it -- makes reruns cheap
@@ -300,9 +307,14 @@ class Canvas:
                 with self._request("GET", url, auth=auth, stream=True,
                                    timeout=120) as r, atomic_write(dest, "wb") as fh:
                     written = 0
+                    next_check = STOP_CHECK_BYTES
                     for chunk in r.iter_content(chunk_size=1 << 16):
                         fh.write(chunk)
                         written += len(chunk)
+                        if written >= next_check:
+                            next_check += STOP_CHECK_BYTES
+                            if self.should_stop and self.should_stop():
+                                raise Cancelled(f"stopped while downloading {dest.name}")
                 break
             except (requests.ConnectionError, requests.Timeout,
                     requests.exceptions.ChunkedEncodingError):

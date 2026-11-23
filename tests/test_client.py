@@ -229,3 +229,24 @@ def test_worker_threads_get_their_own_session():
     assert seen["s"] is not c.session
     assert seen["s"].headers["Authorization"] == "Bearer tok"
     assert c._session() is c.session          # other threads unchanged
+
+
+def test_stop_during_a_large_download_leaves_no_file(tmp_path, monkeypatch):
+    import painter.canvas.client as client_mod
+    from painter.errors import Cancelled
+    monkeypatch.setattr(client_mod, "STOP_CHECK_BYTES", 4)
+    c = client(make_response("u", content=b"x" * (1 << 17)))   # two 64 KiB chunks
+    c.should_stop = lambda: True
+    dest = tmp_path / "big.bin"
+    with pytest.raises(Cancelled, match="big.bin"):
+        c.fetch_file("u", dest)
+    assert not dest.exists()
+    assert not dest.with_name("big.bin.part").exists()
+
+
+def test_small_downloads_never_ask_to_stop(tmp_path):
+    asked = []
+    c = client(make_response("u", content=b"12345"))
+    c.should_stop = lambda: asked.append(1) or False
+    assert c.fetch_file("u", tmp_path / "s.bin").fresh is True
+    assert asked == []
