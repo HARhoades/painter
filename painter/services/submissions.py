@@ -320,7 +320,16 @@ def _start_download(canvas: Canvas, req: DownloadRequest,
     return _DownloadRun(canvas, req, reporter, tz, roster, student_ids, section_ids), assignments
 
 
-def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int) -> None:
+@dataclass
+class _AssignmentStart:
+    """What the serial and parallel paths both work out for one assignment."""
+    adir: Path
+    due: DueDates
+    is_new_quiz: bool
+
+
+def _open_assignment(run: _DownloadRun, assign: dict) -> _AssignmentStart:
+    """The assignment folder, its due dates, and its header line (printed)."""
     req, reporter = run.req, run.reporter
     adir, note = assignment_folder(Path(req.out_root), assign)
     if note:
@@ -330,6 +339,22 @@ def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int)
     is_new_quiz = quiz_kind(assign) == "new"
     reporter.info(f"\n[{assign['id']}] {assign['name']}  (due {base_str})"
                   + ("  [New Quiz]" if is_new_quiz else ""))
+    return _AssignmentStart(adir, due, is_new_quiz)
+
+
+def _note_new_quiz(run: _DownloadRun, assign: dict, submitted: int) -> None:
+    # New Quiz submissions are LTI launches (basic_lti_launch): the
+    # files from File Upload questions stay inside New Quizzes and
+    # never appear as attachments on the Canvas submission.
+    run.new_quizzes_without_files.append(assign)
+    run.reporter.info(f"  {submitted} submitted, but New Quizzes keeps File Upload "
+                      "answers inside the quiz tool, not on the Canvas submission, "
+                      "so there are no attachments to download here.")
+
+
+def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int) -> None:
+    req, reporter = run.req, run.reporter
+    opened = _open_assignment(run, assign)
     submitted, todo = submissions_to_fetch(run.canvas, req.course_id, assign["id"],
                                            run.student_ids, req.history)
     with_files = len(todo)
@@ -341,22 +366,26 @@ def _download_assignment(run: _DownloadRun, assign: dict, step: int, steps: int)
     for n, (sub, attachments) in enumerate(todo, start=1):
         who = (sub.get("user") or {}).get("sortable_name") or str(sub.get("user_id"))
         reporter.event(StudentStart(who, len(attachments), n, len(todo)))
-        _download_submission(run, assign, adir, due, sub, attachments)
+        _download_submission(run, assign, opened.adir, opened.due, sub, attachments)
         if run.stopped:
             return
 
-    if is_new_quiz and not with_files:
-        # New Quiz submissions are LTI launches (basic_lti_launch): the
-        # files from File Upload questions stay inside New Quizzes and
-        # never appear as attachments on the Canvas submission.
-        run.new_quizzes_without_files.append(assign)
-        reporter.info(f"  {submitted} submitted, but New Quizzes keeps File Upload "
-                      "answers inside the quiz tool, not on the Canvas submission, "
-                      "so there are no attachments to download here.")
+    if opened.is_new_quiz and not with_files:
+        _note_new_quiz(run, assign, submitted)
 
 
-def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDates,
-                         sub: dict, attachments: list[dict]) -> None:
+@dataclass
+class _SubmissionPlan:
+    """Where one student's files go, the line that introduces them, the
+    manifest columns they share, and (attachment, file name) for each."""
+    sdir: Path
+    line: str
+    common: dict
+    files: list[tuple[dict, str]]
+
+
+def _plan_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDates,
+                     sub: dict, attachments: list[dict]) -> _SubmissionPlan:
     """One student's submission: where it goes, how late it is, its files."""
     req, roster, tz = run.req, run.roster, run.tz
     uid = sub["user_id"]
@@ -377,8 +406,8 @@ def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDa
         flag = "  [EXCUSED]"
     where = (sdir.relative_to(adir) / student_dir_name(sub)
              if req.flat else sdir.relative_to(adir))
-    run.reporter.info(f"  {where}"
-                      f"  submitted {fmt_ts(sub.get('submitted_at'), tz) or '-'}{flag}")
+    line = (f"  {where}"
+            f"  submitted {fmt_ts(sub.get('submitted_at'), tz) or '-'}{flag}")
 
     common = {
         "assignment": assign["name"],
@@ -399,60 +428,87 @@ def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDa
         "score": sub.get("score") if sub.get("score") is not None else "",
         "workflow_state": sub.get("workflow_state", ""),
     }
+    files = []
     for att, fname in zip(attachments, attachment_filenames(attachments)):
+        files.append((att, flat_filename(sub, fname) if req.flat else fname))
+    return _SubmissionPlan(sdir, line, common, files)
+
+
+def _download_submission(run: _DownloadRun, assign: dict, adir: Path, due: DueDates,
+                         sub: dict, attachments: list[dict]) -> None:
+    plan = _plan_submission(run, assign, adir, due, sub, attachments)
+    run.reporter.info(plan.line)
+    for att, fname in plan.files:
         if run.reporter.cancelled():
             run.stopped = True    # finish below: manifest and log still written
             return
-        if req.flat:
-            fname = flat_filename(sub, fname)
         try:
-            status_text, target, extracted_to = _download_attachment(run, att, sdir, fname)
+            status_text, target, extracted_to = _download_attachment(run, att, plan.sdir, fname)
         except Cancelled:          # during a retry pause: this file is not saved
             run.stopped = True
             return
-        run.rows.append({**common, "filename": fname, "status": status_text,
+        run.rows.append({**plan.common, "filename": fname, "status": status_text,
                          "path": str(target), "extracted_to": extracted_to})
         run.stage_done += 1
         run.reporter.progress(run.stage_done, run.stage_total, fname)
         run.reporter.event(ItemDone("file", fname, status_text,
-                                    common["student"], target))
+                                    plan.common["student"], target))
 
 
-def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,
-                         fname: str) -> tuple[str, Path, str]:
-    """Fetch one file (and unpack it if it is an archive).
-    Returns (status, saved path, extracted-to folder or "")."""
-    reporter = run.reporter
+@dataclass
+class _FileOutcome:
+    """What fetching one attachment did; lines are for the reporter, in order."""
+    status: str
+    target: Path
+    extracted_to: str
+    failed: bool
+    lines: list[Note] = field(default_factory=list)
+
+
+def _fetch_one(canvas: Canvas, att: dict, sdir: Path, fname: str,
+               unpack: bool) -> _FileOutcome:
+    """Fetch one file (and unpack it if it is an archive). Never reports:
+    safe to run on a download worker. Raises Cancelled if stopped part-way."""
     target = sdir / fname
-    extracted_to = ""
+    lines: list[Note] = []
     # Every attachment gets a row, including failures, so the manifest and
     # Excel log never make a partial run look complete (review finding 4).
     try:
-        fresh = download(run.canvas, att["url"], target, att.get("size"))
+        fresh = download(canvas, att["url"], target, att.get("size"))
         if fresh.note:
-            reporter.warning(fresh.note)
+            lines.append(("warning", fresh.note))
     except Cancelled:
         raise
     except Exception as exc:
-        run.failures += 1
-        reporter.info(f"    ! failed {fname}: {exc}")
-        return f"failed: {exc}", target, ""
+        lines.append(("info", f"    ! failed {fname}: {exc}"))
+        return _FileOutcome(f"failed: {exc}", target, "", True, lines)
     status_text = "downloaded" if fresh else "cached"
-    reporter.info(f"    {status_text} {fname}")
-    if run.req.extract and target.suffix.lower() in ARCHIVE_SUFFIXES:
+    lines.append(("info", f"    {status_text} {fname}"))
+    extracted_to = ""
+    if unpack and target.suffix.lower() in ARCHIVE_SUFFIXES:
         unpack_dir = sdir / target.stem
         if not fresh and unpack_dir.is_dir():
             extracted_to = str(unpack_dir)   # done on an earlier run
         else:
             unpacked = extract(target, unpack_dir)
-            for note in unpacked.notes:
-                reporter.info(note)
+            lines += [("info", note) for note in unpacked.notes]
             if unpacked:
                 extracted_to = str(unpack_dir)
-                reporter.info(f"      extracted -> {unpack_dir.name}/")
+                lines.append(("info", f"      extracted -> {unpack_dir.name}/"))
             else:
                 status_text += "; extract failed"
-    return status_text, target, extracted_to
+    return _FileOutcome(status_text, target, extracted_to, False, lines)
+
+
+def _download_attachment(run: _DownloadRun, att: dict, sdir: Path,
+                         fname: str) -> tuple[str, Path, str]:
+    """Serial path: fetch one file and report it at once.
+    Returns (status, saved path, extracted-to folder or "")."""
+    outcome = _fetch_one(run.canvas, att, sdir, fname, run.req.extract)
+    emit(outcome.lines, run.reporter)
+    if outcome.failed:
+        run.failures += 1
+    return outcome.status, outcome.target, outcome.extracted_to
 
 
 def _finish_download(run: _DownloadRun) -> DownloadResult:
